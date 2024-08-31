@@ -92,14 +92,20 @@ const settingsSlice = createSlice({
         language: action.payload
       };
     },
+    updateCurrency (state, action: PayloadAction<AppSettings['currency']>) {
+      return {
+        ...state,
+        currency: action.payload
+      };
+    },
     updateBrowserConfirmationType (state, action: PayloadAction<AppSettings['browserConfirmationType']>) {
       return {
         ...state,
         browserConfirmationType: action.payload
       };
     },
-    updateLogoMaps (state, action: PayloadAction<AppSettings['logoMaps']>) {
-      const { assetLogoMap, chainLogoMap } = action.payload;
+    updateChainLogoMaps (state, action: PayloadAction<Record<string, string>>) {
+      const chainLogoMap = action.payload;
 
       return {
         ...state,
@@ -108,6 +114,17 @@ const settingsSlice = createSlice({
             ...state.logoMaps.chainLogoMap,
             ...chainLogoMap
           },
+          assetLogoMap: state.logoMaps.assetLogoMap
+        }
+      };
+    },
+    updateAssetLogoMaps (state, action: PayloadAction<Record<string, string>>) {
+      const assetLogoMap = action.payload;
+
+      return {
+        ...state,
+        logoMaps: {
+          chainLogoMap: state.logoMaps.chainLogoMap,
           assetLogoMap: {
             ...state.logoMaps.assetLogoMap,
             ...assetLogoMap

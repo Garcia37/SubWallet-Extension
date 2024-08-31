@@ -6,7 +6,7 @@ import { ALL_ACCOUNT_KEY } from '@subwallet/extension-base/constants';
 import { isSameAddress } from '@subwallet/extension-base/utils';
 import { BackgroundExpandView } from '@subwallet/extension-koni-ui/components';
 import { Logo2D } from '@subwallet/extension-koni-ui/components/Logo';
-import { TRANSACTION_STORAGES } from '@subwallet/extension-koni-ui/constants';
+import { CURRENT_PAGE, TRANSACTION_STORAGES } from '@subwallet/extension-koni-ui/constants';
 import { DEFAULT_ROUTER_PATH } from '@subwallet/extension-koni-ui/constants/router';
 import { DataContext } from '@subwallet/extension-koni-ui/contexts/DataContext';
 import { usePredefinedModal, WalletModalContext } from '@subwallet/extension-koni-ui/contexts/WalletModalContext';
@@ -19,11 +19,11 @@ import { ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { isNoAccount, removeStorage } from '@subwallet/extension-koni-ui/utils';
 import { changeHeaderLogo } from '@subwallet/react-ui';
 import { NotificationProps } from '@subwallet/react-ui/es/notification/NotificationProvider';
-import CN from 'classnames';
 import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import { useLocalStorage } from 'usehooks-ts';
 
 changeHeaderLogo(<Logo2D />);
 
@@ -36,14 +36,18 @@ const welcomeUrl = '/welcome';
 const tokenUrl = '/home/tokens';
 const loginUrl = '/keyring/login';
 const phishingUrl = '/phishing-page-detected';
+const mv3MigrationUrl = '/mv3-migration';
+// const remindExportAccountUrl = '/remind-export-account';
 const createPasswordUrl = '/keyring/create-password';
 const migratePasswordUrl = '/keyring/migrate-password';
+const accountNewSeedPhrase = '/accounts/new-seed-phrase';
 const securityUrl = '/settings/security';
 const createDoneUrl = '/create-done';
+const settingImportNetwork = '/settings/chains/import';
 
 const baseAccountPath = '/accounts';
 const allowImportAccountPaths = ['new-seed-phrase', 'import-seed-phrase', 'import-private-key', 'restore-json', 'import-by-qr', 'attach-read-only', 'connect-polkadot-vault', 'connect-keystone', 'connect-ledger'];
-
+const allowBlackScreenWS = [welcomeUrl, loginUrl];
 const allowImportAccountUrls = allowImportAccountPaths.map((path) => `${baseAccountPath}/${path}`);
 
 export const MainWrapper = styled('div')<ThemeProps>(({ theme: { token } }: ThemeProps) => ({
@@ -66,10 +70,9 @@ function removeLoadingPlaceholder (animation: boolean): void {
       element.style.transition = 'opacity 0.1s ease-in-out';
       // Set opacity to 0
       element.style.opacity = '0';
-
       // Callback after 1 second
       setTimeout(() => {
-      // Remove element
+        // Remove element
         element.parentNode?.removeChild(element);
       }, 150);
     } else {
@@ -87,6 +90,7 @@ function DefaultRoute ({ children }: { children: React.ReactNode }): React.React
   const [dataLoaded, setDataLoaded] = useState(false);
   const initDataRef = useRef<Promise<boolean>>(dataContext.awaitStores(['accountState', 'chainStore', 'assetRegistry', 'requestState', 'settings', 'mantaPay']));
   const currentPage = useGetCurrentPage();
+  const [, setStorage] = useLocalStorage<string>(CURRENT_PAGE, DEFAULT_ROUTER_PATH);
   const firstRender = useRef(true);
 
   useSubscribeLanguage();
@@ -98,10 +102,12 @@ function DefaultRoute ({ children }: { children: React.ReactNode }): React.React
   const noAccount = useMemo(() => isNoAccount(accounts), [accounts]);
   const { isUILocked } = useUILock();
   const needUnlock = isUILocked || (isLocked && unlockType === WalletUnlockType.ALWAYS_REQUIRED);
+  const [shouldRedirect, setShouldRedirect] = useState(false);
+  const navigate = useNavigate();
 
   const needMigrate = useMemo(
     () => !!accounts
-      .filter((acc) => acc.address !== ALL_ACCOUNT_KEY && !acc.isExternal && !acc.isInjected)
+      .filter((acc) => acc.address !== ALL_ACCOUNT_KEY && !acc.isExternal && !acc.isInjected && !acc.pendingMigrate)
       .filter((acc) => !acc.isMasterPassword)
       .length
     , [accounts]
@@ -160,9 +166,9 @@ function DefaultRoute ({ children }: { children: React.ReactNode }): React.React
       return null;
     }
 
-    const ignoreRedirect = pathName.startsWith(phishingUrl);
+    const requireLogin = pathName !== mv3MigrationUrl && !pathName.startsWith(phishingUrl);
 
-    if (ignoreRedirect) {
+    if (!requireLogin) {
       // Do nothing
     } else if (needMigrate && hasMasterPassword && !needUnlock) {
       redirectTarget = migratePasswordUrl;
@@ -200,6 +206,10 @@ function DefaultRoute ({ children }: { children: React.ReactNode }): React.React
       } else {
         redirectTarget = DEFAULT_ROUTER_PATH;
       }
+    } else if (hasInternalConfirmations && pathName === accountNewSeedPhrase) {
+      openPModal(null);
+    } else if (hasInternalConfirmations && pathName === settingImportNetwork) {
+      openPModal(null);
     } else if (hasInternalConfirmations) {
       openPModal('confirmations');
     } else if (!hasInternalConfirmations && isOpenPModal('confirmations')) {
@@ -225,6 +235,12 @@ function DefaultRoute ({ children }: { children: React.ReactNode }): React.React
 
   // Remove transaction persist state
   useEffect(() => {
+    if (!dataLoaded && initAccount === null && currentAccount !== null) {
+      setInitAccount(currentAccount);
+
+      return;
+    }
+
     if (!isSameAddress(initAccount?.address || '', currentAccount?.address || '')) {
       for (const key of TRANSACTION_STORAGES) {
         removeStorage(key);
@@ -232,15 +248,35 @@ function DefaultRoute ({ children }: { children: React.ReactNode }): React.React
 
       setInitAccount(currentAccount);
     }
-  }, [currentAccount, initAccount]);
+  }, [currentAccount, dataLoaded, initAccount]);
 
-  if (rootLoading || redirectPath) {
-    return <>{redirectPath && <Navigate to={redirectPath} />}</>;
+  useEffect(() => {
+    if (rootLoading || redirectPath) {
+      if (redirectPath && currentPage !== redirectPath && allowBlackScreenWS.includes(redirectPath)) {
+        setStorage(redirectPath);
+      }
+
+      setShouldRedirect(true);
+    } else {
+      setShouldRedirect(false);
+    }
+  }, [rootLoading, redirectPath, currentPage, setStorage]);
+
+  useEffect(() => {
+    if (shouldRedirect && redirectPath) {
+      navigate(redirectPath);
+    }
+  }, [shouldRedirect, redirectPath, navigate]);
+
+  if (rootLoading || shouldRedirect) {
+    return <></>;
   } else {
-    return <MainWrapper className={CN('main-page-container')}>
-      {children}
-      <BackgroundExpandView />
-    </MainWrapper>;
+    return (
+      <MainWrapper className='main-page-container'>
+        {children}
+        <BackgroundExpandView />
+      </MainWrapper>
+    );
   }
 }
 

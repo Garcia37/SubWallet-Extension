@@ -9,7 +9,6 @@ const CopyPlugin = require('copy-webpack-plugin');
 const ManifestPlugin = require('webpack-extension-manifest-plugin');
 
 const pkgJson = require('./package.json');
-const manifest = require('./manifest.json');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 
 const args = process.argv.slice(2);
@@ -53,14 +52,14 @@ const additionalEnvDict = {
   extension: _additionalEnv
 };
 
-module.exports = (entry, alias = {}, useSplitChunk = false) => {
+module.exports = (entry, alias = {}, isFirefox = false) => {
   const additionalEnv = {};
 
   Object.keys(entry).forEach((key) => {
     Object.assign(additionalEnv, additionalEnvDict[key] || {});
   });
 
-  const result = {
+  const webpackConfig = {
     context: __dirname,
     devtool: false,
     entry,
@@ -95,7 +94,7 @@ module.exports = (entry, alias = {}, useSplitChunk = false) => {
       chunkFilename: '[name].js',
       filename: '[name].js',
       globalObject: '(typeof self !== \'undefined\' ? self : this)',
-      path: path.join(__dirname, 'build'),
+      path: path.join(__dirname, isFirefox ? 'build-firefox' : 'build'),
       publicPath: ''
     },
     performance: {
@@ -133,7 +132,7 @@ module.exports = (entry, alias = {}, useSplitChunk = false) => {
       }),
       new ManifestPlugin({
         config: {
-          base: manifest,
+          base: isFirefox ? require('./manifest-firefox.json') : require('./manifest.json'),
           extend: {
             version: pkgJson.version.split('-')[0] // remove possible -beta.xx
           }
@@ -148,11 +147,6 @@ module.exports = (entry, alias = {}, useSplitChunk = false) => {
         filename: 'notification.html',
         template: 'public/notification.html',
         chunks: ['extension']
-      }),
-      new HtmlWebpackPlugin({
-        filename: 'background.html',
-        template: 'public/background.html',
-        chunks: ['background']
       })
     ],
     resolve: {
@@ -161,7 +155,9 @@ module.exports = (entry, alias = {}, useSplitChunk = false) => {
         [`@subwallet/${p}`]: path.resolve(__dirname, `../${p}/src`)
       }), {
         ...alias,
-        'react/jsx-runtime': require.resolve('react/jsx-runtime')
+        'react/jsx-runtime': require.resolve('react/jsx-runtime'),
+        axios_raw: path.resolve(__dirname, '../../node_modules/axios'),
+        axios: path.resolve(__dirname, 'axios.global.js')
       }),
       extensions: ['.js', '.jsx', '.ts', '.tsx'],
       fallback: {
@@ -179,17 +175,10 @@ module.exports = (entry, alias = {}, useSplitChunk = false) => {
         // url: require.resolve("url/")
       }
     },
-    watch: false,
-    experiments: {
-      asyncWebAssembly: true
-    }
-  };
-
-  if (useSplitChunk) {
-    result.optimization = {
+    optimization: {
       splitChunks: {
-        chunks: 'all',
-        maxSize: 2000000,
+        chunks: (chunk) => (chunk.name === 'extension' || (isFirefox && chunk.name === 'background')),
+        maxSize: 3600000,
         cacheGroups: {
           vendors: {
             test: /[\\/]node_modules[\\/]/,
@@ -201,8 +190,21 @@ module.exports = (entry, alias = {}, useSplitChunk = false) => {
           }
         }
       }
-    };
+    },
+    watch: false,
+    experiments: {
+      asyncWebAssembly: true
+    }
+  };
+
+  if (isFirefox) {
+    webpackConfig.plugins.push(new HtmlWebpackPlugin({
+      filename: 'background.html',
+      template: 'public/background.html',
+      chunks: ['background']
+    })
+    );
   }
 
-  return result;
+  return webpackConfig;
 };

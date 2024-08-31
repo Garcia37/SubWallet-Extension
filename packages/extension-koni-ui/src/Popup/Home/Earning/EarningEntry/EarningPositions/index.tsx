@@ -1,21 +1,25 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { NotificationType } from '@subwallet/extension-base/background/KoniTypes';
+import { ALL_ACCOUNT_KEY } from '@subwallet/extension-base/constants';
 import { YieldPoolType, YieldPositionInfo } from '@subwallet/extension-base/types';
 import { AlertModal, EmptyList, FilterModal, Layout } from '@subwallet/extension-koni-ui/components';
 import { EarningPositionItem } from '@subwallet/extension-koni-ui/components/Earning';
-import { ASTAR_PORTAL_URL, BN_TEN } from '@subwallet/extension-koni-ui/constants';
-import { useAlert, useFilterModal, useSelector, useTranslation } from '@subwallet/extension-koni-ui/hooks';
+import { ASTAR_PORTAL_URL, BN_TEN, EARNING_WARNING_ANNOUNCEMENT } from '@subwallet/extension-koni-ui/constants';
+import { useAlert, useFilterModal, useGetYieldPositionForSpecificAccount, useSelector, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { reloadCron } from '@subwallet/extension-koni-ui/messaging';
+import { RootState } from '@subwallet/extension-koni-ui/stores';
 import { EarningEntryView, EarningPositionDetailParam, ExtraYieldPositionInfo, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { isRelatedToAstar, openInNewTab } from '@subwallet/extension-koni-ui/utils';
-import { ButtonProps, Icon, ModalContext, SwList } from '@subwallet/react-ui';
+import { Button, ButtonProps, Icon, ModalContext, SwList } from '@subwallet/react-ui';
 import BigN from 'bignumber.js';
 import CN from 'classnames';
 import { ArrowsClockwise, FadersHorizontal, Plus, PlusCircle, Vault } from 'phosphor-react';
 import React, { SyntheticEvent, useCallback, useContext, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import { useLocalStorage } from 'usehooks-ts';
 
 type Props = ThemeProps & {
   earningPositions: YieldPositionInfo[];
@@ -34,12 +38,15 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
   const { activeModal } = useContext(ModalContext);
 
   const isShowBalance = useSelector((state) => state.settings.isShowBalance);
-  const priceMap = useSelector((state) => state.price.priceMap);
+  const { currencyData, priceMap } = useSelector((state) => state.price);
   const { assetRegistry: assetInfoMap } = useSelector((state) => state.assetRegistry);
   const chainInfoMap = useSelector((state) => state.chainStore.chainInfoMap);
   const { currentAccount } = useSelector((state) => state.accountState);
+  const accounts = useSelector((root: RootState) => root.accountState.accounts);
   const { filterSelectionMap, onApplyFilter, onChangeFilterOption, onCloseFilterModal, selectedFilters } = useFilterModal(FILTER_MODAL_ID);
   const { alertProps, closeAlert, openAlert } = useAlert(alertModalId);
+  const specificList = useGetYieldPositionForSpecificAccount(currentAccount?.address);
+  const [announcement, setAnnouncement] = useLocalStorage(EARNING_WARNING_ANNOUNCEMENT, 'nonConfirmed');
 
   const items: ExtraYieldPositionInfo[] = useMemo(() => {
     if (!earningPositions.length) {
@@ -54,7 +61,8 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
         return {
           ...item,
           asset: priceToken,
-          price
+          price,
+          currency: currencyData
         };
       })
       .sort((firstItem, secondItem) => {
@@ -67,7 +75,101 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
 
         return getValue(secondItem) - getValue(firstItem);
       });
-  }, [assetInfoMap, earningPositions, priceMap]);
+  }, [assetInfoMap, currencyData, earningPositions, priceMap]);
+
+  const chainStakingBoth = useMemo(() => {
+    const chains = ['polkadot', 'kusama'];
+
+    const findChainWithStaking = (list: YieldPositionInfo[]) => {
+      const hasNativeStaking = (chain: string) => list.some((item) => item.chain === chain && item.type === YieldPoolType.NATIVE_STAKING);
+      const hasNominationPool = (chain: string) => list.some((item) => item.chain === chain && item.type === YieldPoolType.NOMINATION_POOL);
+
+      for (const chain of chains) {
+        if (hasNativeStaking(chain) && hasNominationPool(chain)) {
+          return chain;
+        }
+      }
+
+      return null;
+    };
+
+    if (currentAccount?.address !== ALL_ACCOUNT_KEY) {
+      return findChainWithStaking(specificList);
+    }
+
+    for (const acc of accounts) {
+      if (acc.address !== ALL_ACCOUNT_KEY) {
+        const listStaking = specificList.filter((item) => item.address === acc.address);
+        const chain = findChainWithStaking(listStaking);
+
+        if (chain) {
+          return chain;
+        }
+      }
+    }
+
+    return null;
+  }, [accounts, currentAccount?.address, specificList]);
+
+  const learnMore = useCallback(() => {
+    window.open('https://support.polkadot.network/support/solutions/articles/65000188140-changes-for-nomination-pool-members-and-opengov-participation');
+  }, []);
+
+  const onCancel = useCallback(() => {
+    closeAlert();
+    setAnnouncement('confirmed');
+  }, [closeAlert, setAnnouncement]);
+
+  useEffect(() => {
+    if (chainStakingBoth && announcement.includes('nonConfirmed')) {
+      const chainInfo = chainStakingBoth && chainInfoMap[chainStakingBoth];
+
+      const symbol = (!!chainInfo && chainInfo?.substrateInfo?.symbol) || '';
+      const originChain = (!!chainInfo && chainInfo?.name) || '';
+
+      openAlert({
+        type: NotificationType.WARNING,
+        onCancel: onCancel,
+        content:
+          (<>
+            <div className={CN(className, 'earning-alert-content')}>
+              <span>{t('You’re dual staking via both direct nomination and nomination pool, which')}&nbsp;</span>
+              <span className={'__info-highlight'}>{t('will not be supported')}&nbsp;</span>
+              <span>{t(`in the upcoming ${originChain} runtime upgrade. Read more to learn about the upgrade, and`)}&nbsp;</span>
+              <a
+                href={'https://docs.subwallet.app/main/mobile-app-user-guide/manage-staking/unstake'}
+                rel='noreferrer'
+                style={{ textDecoration: 'underline' }}
+                target={'_blank'}
+              >{(`unstake your ${symbol}`)}
+              </a>&nbsp;
+              <span>{t('from one of the methods to avoid issues')}</span>
+            </div>
+
+          </>),
+        title: t(`Unstake your ${symbol} now!`),
+        okButton: {
+          text: t('Read update'),
+          onClick: () => {
+            learnMore();
+            setAnnouncement('confirmed');
+            closeAlert();
+          }
+        },
+        cancelButton: {
+          text: t('Dismiss'),
+          onClick: () => {
+            closeAlert();
+            setAnnouncement('confirmed');
+          }
+        }
+      });
+    }
+  }, [announcement, chainInfoMap, chainStakingBoth, className, closeAlert, learnMore, onCancel, openAlert, setAnnouncement, t]);
+
+  const lastItem = useMemo(() => {
+    return items[items.length - 1];
+  }, [items]);
 
   const filterOptions = [
     { label: t('Nomination pool'), value: YieldPoolType.NOMINATION_POOL },
@@ -115,7 +217,7 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
       if (isRelatedToAstar(item.slug)) {
         openAlert({
           title: t('Enter Astar portal'),
-          content: t('You are navigating to Astar portal to view and manage your stake in Astar dApp staking v3. SubWallet will offer support for Astar dApp staking v3 soon.'),
+          content: t('Navigate to Astar portal to view and manage your stake in Astar dApp staking v3'),
           cancelButton: {
             text: t('Cancel'),
             schema: 'secondary',
@@ -136,20 +238,40 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
       }
     };
   }, [closeAlert, navigate, openAlert, t]);
+  const onClickExploreEarning = useCallback(() => {
+    setEntryView(EarningEntryView.OPTIONS);
+  }, [setEntryView]);
 
   const renderItem = useCallback(
     (item: ExtraYieldPositionInfo) => {
       return (
-        <EarningPositionItem
-          className={'earning-position-item'}
-          isShowBalance={isShowBalance}
-          key={item.slug}
-          onClick={onClickItem(item)}
-          positionInfo={item}
-        />
+        <>
+          <EarningPositionItem
+            className={'earning-position-item'}
+            isShowBalance={isShowBalance}
+            key={item.slug}
+            onClick={onClickItem(item)}
+            positionInfo={item}
+          />
+          {item.slug === lastItem.slug && <div className={'__footer-button'}>
+            <Button
+              icon={(
+                <Icon
+                  phosphorIcon={Plus}
+                  size='sm'
+                />
+              )}
+              onClick={onClickExploreEarning}
+              size={'xs'}
+              type={'ghost'}
+            >
+              {t('Explore earning options')}
+            </Button>
+          </div>}
+        </>
       );
     },
-    [isShowBalance, onClickItem]
+    [lastItem.slug, isShowBalance, onClickItem, onClickExploreEarning, t]
   );
 
   const emptyList = useCallback(() => {
@@ -293,6 +415,19 @@ const EarningPositions = styled(Component)<Props>(({ theme: { token } }: Props) 
   '.__section-list-container': {
     height: '100%',
     flex: 1
+  },
+
+  '&.earning-alert-content': {
+    '.__info-highlight': {
+      fontWeight: token.fontWeightStrong
+    }
+  },
+
+  '.__footer-button': {
+    display: 'flex',
+    justifyContent: 'center',
+    marginBottom: token.size,
+    marginTop: token.marginXS
   },
 
   '.earning-position-item': {

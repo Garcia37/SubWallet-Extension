@@ -176,6 +176,10 @@ export default class EarningService implements StoppableServiceInterface, Persis
             removedAddresses.push(event.data[0] as string);
           }
 
+          if (event.type === 'account.add') {
+            delayReload = true;
+          }
+
           if (event.type === 'chain.updateState') {
             const chainState = this.state.getChainStateByKey(event.data[0] as string);
 
@@ -244,7 +248,7 @@ export default class EarningService implements StoppableServiceInterface, Persis
     this.status = ServiceStatus.STARTING;
 
     // Start subscribe pools' info
-    await this.runSubscribePoolsInfo();
+    // await this.runSubscribePoolsInfo();
 
     // Start subscribe pools' position
     await this.runSubscribePoolsPosition();
@@ -276,7 +280,7 @@ export default class EarningService implements StoppableServiceInterface, Persis
     await this.persistData();
 
     // Stop subscribe pools' info
-    this.runUnsubscribePoolsInfo();
+    // this.runUnsubscribePoolsInfo();
 
     // Stop subscribe pools' position
     this.runUnsubscribePoolsPosition();
@@ -502,8 +506,6 @@ export default class EarningService implements StoppableServiceInterface, Persis
     const removeKeys: string[] = [];
 
     chains && chains.length > 0 && Object.entries(this.yieldPositionSubject.getValue()).forEach(([key, value]) => {
-      console.log('removeYieldPositions', key, value.chain, chains.indexOf(value.chain) > -1);
-
       if (chains.indexOf(value.chain) > -1 && !removeKeys.includes(key)) {
         removeKeys.push(key);
       }

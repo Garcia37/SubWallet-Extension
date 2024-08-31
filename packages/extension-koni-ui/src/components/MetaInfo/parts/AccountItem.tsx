@@ -40,8 +40,8 @@ const Component: React.FC<AccountInfoItem> = (props: AccountInfoItem) => {
       addPrefix = addressPrefix;
     }
 
-    if (account?.originGenesisHash) {
-      const network = findNetworkJsonByGenesisHash(chainInfoMap, account.originGenesisHash);
+    if (account?.genesisHash) {
+      const network = findNetworkJsonByGenesisHash(chainInfoMap, account.genesisHash);
 
       if (network) {
         addPrefix = network.substrateInfo?.addressPrefix ?? addPrefix;
@@ -79,6 +79,7 @@ const Component: React.FC<AccountInfoItem> = (props: AccountInfoItem) => {
                 <>
                   <Avatar
                     className={'__account-avatar'}
+                    identPrefix={addressPrefix}
                     size={24}
                     value={address}
                   />

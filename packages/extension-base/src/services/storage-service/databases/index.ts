@@ -6,7 +6,7 @@ import { CampaignData, ChainStakingMetadata, CrowdloanItem, MetadataItem, NftCol
 import { BalanceItem, YieldPoolInfo, YieldPositionInfo } from '@subwallet/extension-base/types';
 import Dexie, { Table, Transaction } from 'dexie';
 
-const DEFAULT_DATABASE = 'SubWalletDB_v2';
+export const DEFAULT_DATABASE = 'SubWalletDB_v2';
 
 export interface DefaultChainDoc {
   chain: string
@@ -20,10 +20,15 @@ export interface DefaultDocWithAddressAndChain extends DefaultChainDoc, DefaultA
 
 export interface IBalance extends BalanceItem, DefaultAddressDoc {}
 export interface IChain extends _ChainInfo {
-  active: boolean,
-  currentProvider: string
+  active: boolean;
+  currentProvider: string;
+  manualTurnOff: boolean;
 }
 export interface ICrowdloanItem extends CrowdloanItem, DefaultAddressDoc, DefaultChainDoc {}
+export interface IKeyValue {
+  key: string,
+  value: string
+}
 export interface INft extends NftItem, DefaultAddressDoc {}
 export interface ITransactionHistoryItem extends TransactionHistoryItem, DefaultAddressDoc, DefaultChainDoc {}
 
@@ -68,6 +73,8 @@ export default class KoniDatabase extends Dexie {
   public mantaPay!: Table<IMantaPayLedger, object>;
   public campaign!: Table<ICampaign, object>;
 
+  public keyValue!: Table<IKeyValue, object>;
+
   private schemaVersion: number;
 
   public constructor (name = DEFAULT_DATABASE, schemaVersion = 11) {
@@ -108,6 +115,10 @@ export default class KoniDatabase extends Dexie {
     this.conditionalVersion(5, {
       campaign: 'slug'
     });
+
+    this.conditionalVersion(6, {
+      keyValue: 'key'
+    });
   }
 
   private conditionalVersion (
@@ -124,5 +135,16 @@ export default class KoniDatabase extends Dexie {
     if (upgrade != null) {
       dexieVersion.upgrade(upgrade);
     }
+  }
+
+  // Singletons
+  public static instance: KoniDatabase;
+
+  public static getInstance (name?: string, schemaVersion?: number): KoniDatabase {
+    if (!KoniDatabase.instance) {
+      KoniDatabase.instance = new KoniDatabase(name, schemaVersion);
+    }
+
+    return KoniDatabase.instance;
   }
 }

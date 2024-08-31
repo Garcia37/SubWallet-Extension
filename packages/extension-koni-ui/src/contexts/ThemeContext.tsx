@@ -74,6 +74,30 @@ const GlobalStyle = createGlobalStyle<ThemeProps>(({ theme }) => {
         }
       }
     },
+    '.__currency-value-detail-tooltip': {
+      paddingBottom: 0,
+
+      '.ant-tooltip-inner': {
+        padding: `${token.paddingXXS}px ${token.paddingXXS + 2}px`,
+        fontSize: token.fontSizeXS,
+        minHeight: 'auto',
+        minWidth: 'auto'
+      },
+
+      '.ant-tooltip-arrow': {
+        transform: 'translateX(-50%) translateY(100%) rotate(180deg) scaleX(0.5)'
+      }
+    },
+
+    '.__tooltip-overlay-remind': {
+      '.ant-tooltip-inner': {
+        fontSize: token.fontSizeXS,
+        lineHeight: token.lineHeightXS,
+        fontWeight: 700,
+        padding: `2px ${token.paddingXS}px`,
+        minHeight: 'auto'
+      }
+    },
 
     '.text-secondary': {
       color: token.colorTextSecondary
@@ -200,6 +224,10 @@ const GlobalStyle = createGlobalStyle<ThemeProps>(({ theme }) => {
       }
     },
 
+    '.ant-input': {
+      minWidth: 0 // fix issue related to input overflow width
+    },
+
     '.ant-input-affix-wrapper': {
       overflow: 'hidden',
 
@@ -224,6 +252,20 @@ const GlobalStyle = createGlobalStyle<ThemeProps>(({ theme }) => {
         overflow: 'hidden',
         display: 'block',
         'white-space': 'nowrap'
+      }
+    },
+
+    '.ledger-warning-modal': {
+      '.ant-sw-modal-confirm-btns': {
+        flexDirection: 'row',
+
+        button: {
+          flex: 1,
+
+          '.anticon': {
+            display: 'none'
+          }
+        }
       }
     }
   });

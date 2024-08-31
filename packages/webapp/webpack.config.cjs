@@ -151,7 +151,8 @@ const createConfig = (entry, alias = {}, useSplitChunk = false) => {
       }),
       new HtmlWebpackPlugin({
         filename: 'index.html',
-        template: 'public/index.html'
+        template: 'public/index.html',
+        meta: { 'app-version': pkgJson.buildNumber }
       })
     ],
     resolve: {
@@ -162,7 +163,7 @@ const createConfig = (entry, alias = {}, useSplitChunk = false) => {
         ...alias,
         'react/jsx-runtime': require.resolve('react/jsx-runtime')
       }),
-      extensions: ['.js', '.jsx', '.ts', '.tsx'],
+      extensions: ['.js', '.mjs', '.jsx', '.ts', '.tsx'],
       fallback: {
         crypto: require.resolve('crypto-browserify'),
         path: require.resolve('path-browserify'),
@@ -175,15 +176,34 @@ const createConfig = (entry, alias = {}, useSplitChunk = false) => {
         url: false
       }
     },
-    watch: false
+    watch: false,
+    experiments: {
+      asyncWebAssembly: true
+    }
+  };
+
+  result.optimization = {
+    splitChunks: {
+      chunks: 'all',
+      maxSize: 2000000,
+      cacheGroups: {
+        vendors: {
+          test: /[\\/]node_modules[\\/]/,
+          priority: -10
+        },
+        default: {
+          priority: -20,
+          reuseExistingChunk: true
+        }
+      }
+    }
   };
 
   return result;
 };
 
 module.exports = createConfig({
-  fallback: './src/fallback.ts',
-  webapp: './src/webRunner.ts',
+  webapp: ['./src/fallback.ts', './src/webRunner.ts'],
   main: './src/index.tsx'
 }, {
   'manta-extension-sdk': './manta-extension-sdk-empty.ts'

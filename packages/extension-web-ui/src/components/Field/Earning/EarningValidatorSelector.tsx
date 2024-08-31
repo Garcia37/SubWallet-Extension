@@ -3,8 +3,9 @@
 
 import { getValidatorLabel } from '@subwallet/extension-base/koni/api/staking/bonding/utils';
 import { _STAKING_CHAIN_GROUP } from '@subwallet/extension-base/services/earning-service/constants';
+import { YieldPoolType } from '@subwallet/extension-base/types';
 import { detectTranslate } from '@subwallet/extension-base/utils';
-import { SelectValidatorInput, StakingValidatorItem } from '@subwallet/extension-web-ui/components';
+import { BaseModal, SelectValidatorInput, StakingValidatorItem } from '@subwallet/extension-web-ui/components';
 import EmptyValidator from '@subwallet/extension-web-ui/components/Account/EmptyValidator';
 import { BasicInputWrapper } from '@subwallet/extension-web-ui/components/Field/Base';
 import { EarningValidatorDetailModal } from '@subwallet/extension-web-ui/components/Modal/Earning';
@@ -13,8 +14,9 @@ import { SortingModal } from '@subwallet/extension-web-ui/components/Modal/Sorti
 import { VALIDATOR_DETAIL_MODAL } from '@subwallet/extension-web-ui/constants';
 import { useFilterModal, useGetPoolTargetList, useSelector, useSelectValidators, useYieldPositionDetail } from '@subwallet/extension-web-ui/hooks';
 import { ThemeProps, ValidatorDataType } from '@subwallet/extension-web-ui/types';
+import { autoSelectValidatorOptimally } from '@subwallet/extension-web-ui/utils';
 import { getValidatorKey } from '@subwallet/extension-web-ui/utils/transaction/stake';
-import { Badge, Button, Icon, InputRef, ModalContext, SwList, SwModal, useExcludeModal } from '@subwallet/react-ui';
+import { Badge, Button, Icon, InputRef, ModalContext, SwList, useExcludeModal } from '@subwallet/react-ui';
 import { SwListSectionRef } from '@subwallet/react-ui/es/sw-list';
 import BigN from 'bignumber.js';
 import { CaretLeft, CheckCircle, FadersHorizontal, SortAscending } from 'phosphor-react';
@@ -48,6 +50,8 @@ interface SortOption {
 
 const SORTING_MODAL_ID = 'nominated-sorting-modal';
 const FILTER_MODAL_ID = 'nominated-filter-modal';
+const AVAIL_CHAIN = 'avail_mainnet';
+const AVAIL_VALIDATOR = '5FjdibsxmNFas5HWcT2i1AXbpfgiNfWqezzo88H2tskxWdt2';
 
 const filterOptions = [
   {
@@ -72,11 +76,12 @@ const defaultModalId = 'multi-validator-selector';
 
 const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
   const { chain, className = '', defaultValue, from
-    , id = defaultModalId, isSingleSelect: _isSingleSelect = false,
-    loading, onChange, slug
+    , id = defaultModalId, isSingleSelect: _isSingleSelect = false, onChange, slug
     , setForceFetchValidator, value } = props;
   const { t } = useTranslation();
   const { activeModal, checkActive } = useContext(ModalContext);
+  const chainInfoMap = useSelector((state) => state.chainStore.chainInfoMap);
+  const defaultValueRef = useRef({ _default: '_', selected: '_' });
 
   useExcludeModal(id);
   const isActive = checkActive(id);
@@ -84,6 +89,8 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
   const sectionRef = useRef<SwListSectionRef>(null);
 
   const items = useGetPoolTargetList(slug) as ValidatorDataType[];
+
+  const networkPrefix = chainInfoMap[chain]?.substrateInfo?.addressPrefix;
 
   const { compound } = useYieldPositionDetail(slug, from);
 
@@ -96,6 +103,14 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
   const isRelayChain = useMemo(() => _STAKING_CHAIN_GROUP.relay.includes(chain), [chain]);
   const isSingleSelect = useMemo(() => _isSingleSelect || !isRelayChain, [_isSingleSelect, isRelayChain]);
   const hasReturn = useMemo(() => items[0]?.expectedReturn !== undefined, [items]);
+
+  const maxPoolMembersValue = useMemo(() => {
+    if (poolInfo.type === YieldPoolType.NATIVE_STAKING) { // todo: should also check chain group for pool
+      return poolInfo.maxPoolMembers;
+    }
+
+    return undefined;
+  }, [poolInfo]);
 
   const sortingOptions: SortOption[] = useMemo(() => {
     const result: SortOption[] = [
@@ -135,10 +150,11 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     onApplyChangeValidators,
     onCancelSelectValidator,
     onChangeSelectedValidator,
-    onInitValidators } = useSelectValidators(id, chain, maxCount, onChange, isSingleSelect);
+    onInitValidators } = useSelectValidators(items, id, chain, maxCount, onChange, isSingleSelect);
 
   const [viewDetailItem, setViewDetailItem] = useState<ValidatorDataType | undefined>(undefined);
   const [sortSelection, setSortSelection] = useState<SortKey>(SortKey.DEFAULT);
+  const [autoValidator, setAutoValidator] = useState('');
   const { filterSelectionMap, onApplyFilter, onChangeFilterOption, onCloseFilterModal, onResetFilter, selectedFilters } = useFilterModal(FILTER_MODAL_ID);
 
   const fewValidators = changeValidators.length > 1;
@@ -195,7 +211,16 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
           return new BigN(a.minBond).minus(b.minBond).toNumber();
         case SortKey.NOMINATING:
           return sortValidator(a, b);
+
         case SortKey.DEFAULT:
+          if (a.isCrowded && !b.isCrowded) {
+            return 1;
+          } else if (!a.isCrowded && b.isCrowded) {
+            return -1;
+          } else {
+            return 0;
+          }
+
         default:
           return 0;
       }
@@ -263,10 +288,11 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
         key={key}
         onClick={onClickItem}
         onClickMoreBtn={onClickMore(item)}
+        prefixAddress = {networkPrefix}
         validatorInfo={item}
       />
     );
-  }, [changeValidators, nominatorValueList, onClickItem, onClickMore]);
+  }, [changeValidators, networkPrefix, nominatorValueList, onClickItem, onClickMore]);
 
   const onClickActionBtn = useCallback(() => {
     activeModal(FILTER_MODAL_ID);
@@ -288,14 +314,35 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
   }, [activeModal, id]);
 
   useEffect(() => {
-    const _default = nominations?.map((item) => getValidatorKey(item.validatorAddress, item.validatorIdentity)).join(',') || '';
+    if (chain === AVAIL_CHAIN) {
+      setAutoValidator((old) => {
+        if (old) {
+          return old;
+        } else {
+          const selectedValidator = autoSelectValidatorOptimally(items, 16, true, AVAIL_VALIDATOR);
+
+          return selectedValidator.map((item) => getValidatorKey(item.address, item.identity)).join(',');
+        }
+      });
+    } else {
+      setAutoValidator('');
+    }
+  }, [items, chain]);
+
+  useEffect(() => {
+    const _default = nominations?.map((item) => getValidatorKey(item.validatorAddress, item.validatorIdentity)).join(',') || autoValidator || '';
     const selected = defaultValue || (isSingleSelect ? '' : _default);
+
+    if (defaultValueRef.current._default === _default && defaultValueRef.current.selected === selected) {
+      return;
+    }
 
     onInitValidators(_default, selected);
     onChange && onChange({ target: { value: selected } });
 
+    defaultValueRef.current = { _default, selected };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nominations, onInitValidators, isSingleSelect]);
+  }, [nominations, onInitValidators, isSingleSelect, defaultValue, autoValidator]);
 
   useEffect(() => {
     if (!isActive) {
@@ -316,14 +363,14 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     <>
       <SelectValidatorInput
         chain={chain}
-        disabled={!chain || !from}
+        disabled={items.length < 1}
         label={t('Select') + ' ' + t(handleValidatorLabel)}
-        loading={loading}
+        loading={false}
         onClick={onActiveValidatorSelector}
         value={value || ''}
       />
-      <SwModal
-        className={`${className} modal-full`}
+      <BaseModal
+        className={`${className}`}
         closeIcon={(
           <Icon
             phosphorIcon={CaretLeft}
@@ -331,19 +378,21 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
           />
         )}
         footer={(
-          <Button
-            block
-            disabled={!changeValidators.length}
-            icon={(
-              <Icon
-                phosphorIcon={CheckCircle}
-                weight={'fill'}
-              />
-            )}
-            onClick={onApplyChangeValidators}
-          >
-            {t(applyLabel, { number: changeValidators.length })}
-          </Button>
+          <div style={{ display: 'flex', flexDirection: 'row' }}>
+            <Button
+              block
+              disabled={!changeValidators.length}
+              icon={(
+                <Icon
+                  phosphorIcon={CheckCircle}
+                  weight={'fill'}
+                />
+              )}
+              onClick={onApplyChangeValidators}
+            >
+              {t(applyLabel, { number: changeValidators.length })}
+            </Button>
+          </div>
         )}
         id={id}
         onCancel={onCancelSelectValidator}
@@ -373,7 +422,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
           searchPlaceholder={t<string>(`Search ${handleValidatorLabel}`)}
           // showActionBtn
         />
-      </SwModal>
+      </BaseModal>
 
       <FilterModal
         id={FILTER_MODAL_ID}
@@ -395,6 +444,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
       {viewDetailItem && (
         <EarningValidatorDetailModal
           chain={chain}
+          maxPoolMembersValue={maxPoolMembersValue}
           validatorItem={viewDetailItem}
         />
       )}
@@ -404,22 +454,21 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
 
 const EarningValidatorSelector = styled(forwardRef(Component))<Props>(({ theme: { token } }: Props) => {
   return {
-    '.ant-sw-modal-header': {
-      paddingTop: token.paddingXS,
-      paddingBottom: token.paddingLG
-    },
-
     '.ant-sw-modal-body': {
       overflow: 'hidden',
       display: 'flex',
-      flexDirection: 'column'
+      flexDirection: 'column',
+      paddingLeft: 0,
+      paddingRight: 0
     },
-
     '.ant-sw-modal-footer': {
       margin: 0,
-      marginTop: token.marginXS,
       borderTop: 0,
-      marginBottom: token.margin
+      paddingLeft: 0,
+      paddingRight: 0
+    },
+    '.__pool-item-wrapper': {
+      marginBottom: token.marginXS
     },
 
     '.pool-item:not(:last-child)': {
