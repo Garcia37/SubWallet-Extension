@@ -14,13 +14,14 @@ import useGetAccountInfoByAddress from '@subwallet/extension-koni-ui/hooks/scree
 import { INftItemDetail } from '@subwallet/extension-koni-ui/Popup/Home/Nfts/utils';
 import { RootState } from '@subwallet/extension-koni-ui/stores';
 import { SendNftParams, Theme, ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { getTransactionFromAccountProxyValue } from '@subwallet/extension-koni-ui/utils';
 import reformatAddress from '@subwallet/extension-koni-ui/utils/account/reformatAddress';
 import { BackgroundIcon, Button, ButtonProps, Field, Icon, Image, Logo, ModalContext, SwModal } from '@subwallet/react-ui';
 import SwAvatar from '@subwallet/react-ui/es/sw-avatar';
 import { getAlphaColor } from '@subwallet/react-ui/lib/theme/themes/default/colorAlgorithm';
 import CN from 'classnames';
 import { CaretLeft, Info, PaperPlaneTilt } from 'phosphor-react';
-import React, { useCallback, useContext } from 'react';
+import React, { useCallback, useContext, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
 import styled, { useTheme } from 'styled-components';
@@ -49,12 +50,11 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
 
   const navigate = useNavigate();
   const { goBack } = useDefaultNavigate();
-  const { token } = useTheme() as Theme;
+  const { extendToken, token } = useTheme() as Theme;
 
   const dataContext = useContext(DataContext);
   const { activeModal, inactiveModal } = useContext(ModalContext);
-
-  const accounts = useSelector((root: RootState) => root.accountState.accounts);
+  const { accounts, currentAccountProxy } = useSelector((root: RootState) => root.accountState);
 
   const originChainInfo = useGetChainInfo(nftItem.chain);
   const ownerAccountInfo = useGetAccountInfoByAddress(nftItem.owner || '');
@@ -63,6 +63,8 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
 
   useNavigateOnChangeAccount('/home/nfts/collections');
 
+  const nftDetailImageUrl = useMemo(() => nftItem.image || collectionInfo.image || extendToken.defaultImagePlaceholder, [nftItem.image, collectionInfo.image, extendToken.defaultImagePlaceholder]);
+
   const onClickSend = useCallback(() => {
     if (nftItem && nftItem.owner) {
       const ownerAddress = reformatAddress(nftItem.owner, 42);
@@ -70,7 +72,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
 
       if (owner?.isReadOnly) {
         notify({
-          message: t('The NFT owner is a watch-only account, you cannot send the NFT with it'),
+          message: t('ui.NFT.screen.NftsItemDetail.nftOwnerIsWatchOnly'),
           type: 'info',
           duration: 3
         });
@@ -85,14 +87,15 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
       from: nftItem.owner,
       itemId: nftItem.id,
       to: '',
-      chain: nftItem.chain
+      chain: nftItem.chain,
+      fromAccountProxy: getTransactionFromAccountProxyValue(currentAccountProxy)
     });
     navigate('/transaction/send-nft');
-  }, [accounts, navigate, nftItem, notify, setStorage, t]);
+  }, [accounts, currentAccountProxy, navigate, nftItem, notify, setStorage, t]);
 
   const subHeaderRightButton: ButtonProps[] = [
     {
-      children: t<string>('Send'),
+      children: t<string>('ui.NFT.screen.NftsItemDetail.send'),
       onClick: onClickSend
     }
   ];
@@ -212,13 +215,13 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
               height={358}
               modelViewerProps={show3DModel ? { ...DEFAULT_MODEL_VIEWER_PROPS, ...CAMERA_CONTROLS_MODEL_VIEWER_PROPS } : undefined}
               onClick={onImageClick}
-              src={nftItem.image}
+              src={nftDetailImageUrl}
               width={ show3DModel ? 358 : undefined}
             />
           </div>
 
           <div className={'nft_item_detail__info_container'}>
-            <div className={'nft_item_detail__section_title'}>{t<string>('NFT details')}</div>
+            <div className={'nft_item_detail__section_title'}>{t<string>('ui.NFT.screen.NftsItemDetail.nftDetails')}</div>
             {
               nftItem.description && (
                 <div
@@ -236,7 +239,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                       type='phosphor'
                       weight={'fill'}
                     />
-                    <div>{t<string>('Description')}</div>
+                    <div>{t<string>('ui.NFT.screen.NftsItemDetail.description')}</div>
                   </div>
                 </div>
               )
@@ -244,26 +247,26 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
 
             <Field
               content={collectionInfo.collectionName || collectionInfo.collectionId}
-              label={t<string>('NFT collection name')}
+              label={t<string>('ui.NFT.screen.NftsItemDetail.nftCollectionName')}
               suffix={nftItem.externalUrl && externalInfoIcon('collection')}
             />
 
             <Field
               content={ownerInfo()}
-              label={t<string>('Owned by')}
+              label={t<string>('ui.NFT.screen.NftsItemDetail.ownedBy')}
               prefix={nftItem.owner && ownerPrefix()}
               suffix={externalInfoIcon('account')}
             />
 
             <Field
               content={originChainInfo.name}
-              label={t<string>('Network')}
+              label={t<string>('ui.NFT.screen.NftsItemDetail.network')}
               prefix={originChainLogo()}
             />
           </div>
 
           <div className={'nft_item_detail__prop_section'}>
-            <div className={'nft_item_detail__section_title'}>{t<string>('Properties')}</div>
+            <div className={'nft_item_detail__section_title'}>{t<string>('ui.NFT.screen.NftsItemDetail.properties')}</div>
             <div className={'nft_item_detail__atts_container'}>
               <Field
                 className={'nft_item_detail__id_field'}
@@ -307,7 +310,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
             />}
             onClick={onClickSend}
           >
-            <span className={'nft_item_detail__send_text'}>{t('Send')}</span>
+            <span className={'nft_item_detail__send_text'}>{t('ui.NFT.screen.NftsItemDetail.send')}</span>
           </Button>
         </div>
 
@@ -316,7 +319,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
           closeIcon={modalCloseButton}
           id={'nftItemDescription'}
           onCancel={onCloseNftDescriptionModal}
-          title={t<string>('Description')}
+          title={t<string>('ui.NFT.screen.NftsItemDetail.description')}
           wrapClassName={className}
         >
           <div className={'nft_item_detail__description_modal_content'}>

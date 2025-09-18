@@ -21,6 +21,7 @@ import EarningReducer from './feature/Earning';
 import MantaPayReducer from './feature/MantaPay';
 import MissionPoolReducer from './feature/MissionPool';
 import NftReducer from './feature/Nft';
+import NotificationReducer from './feature/Notification';
 import PriceReducer from './feature/Price';
 import StakingReducer from './feature/Staking';
 import SwapReducer from './feature/Swap';
@@ -37,7 +38,9 @@ const persistConfig = {
     'staking',
     'campaign',
     'buyService',
-    'staticContent'
+    'staticContent',
+    'price',
+    'earning'
   ]
 };
 
@@ -71,7 +74,10 @@ const rootReducers = combineReducers({
   walletConnect: WalletConnectReducer,
 
   // mission pool
-  missionPool: MissionPoolReducer
+  missionPool: MissionPoolReducer,
+
+  // inapp notification
+  notification: NotificationReducer
 });
 
 const persistedReducer = persistReducer(persistConfig, rootReducers);

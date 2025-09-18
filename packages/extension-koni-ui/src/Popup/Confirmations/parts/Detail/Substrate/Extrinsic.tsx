@@ -5,7 +5,6 @@ import type { Chain } from '@subwallet/extension-chains/types';
 import type { Call, ExtrinsicEra, ExtrinsicPayload } from '@polkadot/types/interfaces';
 import type { AnyJson, SignerPayloadJSON } from '@polkadot/types/types';
 
-import { AccountJson } from '@subwallet/extension-base/background/types';
 import MetaInfo from '@subwallet/extension-koni-ui/components/MetaInfo/MetaInfo';
 import useGetChainInfoByGenesisHash from '@subwallet/extension-koni-ui/hooks/chain/useGetChainInfoByGenesisHash';
 import useMetadata from '@subwallet/extension-koni-ui/hooks/transaction/confirmation/useMetadata';
@@ -26,7 +25,8 @@ interface Decoded {
 interface Props extends ThemeProps {
   payload: ExtrinsicPayload;
   request: SignerPayloadJSON;
-  account: AccountJson;
+  address: string;
+  accountName?: string;
 }
 
 const displayDecodeVersion = (message: string, chain: Chain, specVersion: BN): string => {
@@ -57,7 +57,7 @@ const decodeMethod = (data: string, chain: Chain, specVersion: BN): Decoded => {
 const renderMethod = (data: string, { args, method }: Decoded, t: TFunction): React.ReactNode => {
   if (!args || !method) {
     return (
-      <MetaInfo.Data label={t<string>('Method data')}>
+      <MetaInfo.Data label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.methodData')}>
         {data}
       </MetaInfo.Data>
     );
@@ -65,7 +65,7 @@ const renderMethod = (data: string, { args, method }: Decoded, t: TFunction): Re
 
   return (
     <div className='method-container'>
-      <MetaInfo.Data label={t<string>('Method')}>
+      <MetaInfo.Data label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.method')}>
         <details>
           <summary>
             {method.section}.{method.method}{method.meta ? `(${method.meta.args.map(({ name }) => name).join(', ')})` : ''}
@@ -75,7 +75,7 @@ const renderMethod = (data: string, { args, method }: Decoded, t: TFunction): Re
       </MetaInfo.Data>
       {
         method.meta && (
-          <MetaInfo.Data label={t<string>('Info')}>
+          <MetaInfo.Data label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.info')}>
             <details>
               <summary>{method.meta.docs.map((d) => d.toString().trim()).join(' ')}</summary>
             </details>
@@ -88,13 +88,13 @@ const renderMethod = (data: string, { args, method }: Decoded, t: TFunction): Re
 
 const mortalityAsString = (era: ExtrinsicEra, hexBlockNumber: string, t: TFunction): string => {
   if (era.isImmortalEra) {
-    return t<string>('immortal');
+    return t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.immortal');
   }
 
   const blockNumber = bnToBn(hexBlockNumber);
   const mortal = era.asMortalEra;
 
-  return t<string>('mortal, valid from {{birth}} to {{death}}', {
+  return t('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.mortalValidFromTo', {
     replace: {
       birth: formatNumber(mortal.birth(blockNumber)),
       death: formatNumber(mortal.death(blockNumber))
@@ -102,7 +102,7 @@ const mortalityAsString = (era: ExtrinsicEra, hexBlockNumber: string, t: TFuncti
   });
 };
 
-const Component: React.FC<Props> = ({ account, className, payload: { era, nonce, tip }, request: { blockNumber, genesisHash, method, specVersion: hexSpec } }: Props) => {
+const Component: React.FC<Props> = ({ accountName, address, className, payload: { era, nonce, tip }, request: { blockNumber, genesisHash, method, specVersion: hexSpec } }: Props) => {
   const { t } = useTranslation();
   const { chain } = useMetadata(genesisHash);
   const chainInfo = useGetChainInfoByGenesisHash(genesisHash);
@@ -123,42 +123,43 @@ const Component: React.FC<Props> = ({ account, className, payload: { era, nonce,
           ? (
             <MetaInfo.Chain
               chain={chainInfo.slug}
-              label={t<string>('Network')}
+              label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.network')}
             />
           )
           : (
             <MetaInfo.Default
-              label={t<string>('GenesisHash')}
+              label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.genesisHash')}
             >
               {toShort(genesisHash, 10, 10)}
             </MetaInfo.Default>
           )
       }
       <MetaInfo.Account
-        address={account.address}
-        label={t('From')}
-        name={account.name}
+        address={address}
+        className={'account-info-item'}
+        label={t('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.from')}
+        name={accountName}
         networkPrefix={chain?.ss58Format ?? chainInfo?.substrateInfo?.addressPrefix}
       />
       <MetaInfo.Number
-        label={t<string>('Version')}
+        label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.version')}
         value={specVersion.toNumber()}
       />
       <MetaInfo.Number
-        label={t<string>('Nonce')}
+        label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.nonce')}
         value={formatNumber(nonce)}
       />
       {!tip.isEmpty && (
         <MetaInfo.Number
           decimals={chainInfo?.substrateInfo?.decimals || 0}
-          label={t<string>('Tip')}
+          label={t<string>('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.tip')}
           suffix={chainInfo?.substrateInfo?.symbol}
           value={tip.toPrimitive() as string | number}
         />
       )}
       {renderMethod(method, decoded, t)}
       <MetaInfo.Data
-        label={t('Lifetime')}
+        label={t('ui.DAPP.Confirmations.Detail.Substrate.Extrinsic.lifetime')}
       >
         {mortalityAsString(era, blockNumber, t)}
       </MetaInfo.Data>
@@ -194,6 +195,12 @@ const SubstrateExtrinsic = styled(Component)<Props>(({ theme: { token } }: Props
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-all'
         }
+      }
+    },
+
+    '.account-info-item': {
+      '.__account-item-address': {
+        textAlign: 'right'
       }
     }
   };

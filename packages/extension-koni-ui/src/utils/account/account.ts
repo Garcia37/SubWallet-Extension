@@ -3,20 +3,25 @@
 
 import { _ChainInfo } from '@subwallet/chain-list/types';
 import { NetworkJson } from '@subwallet/extension-base/background/KoniTypes';
-import { AbstractAddressJson, AccountAuthType, AccountJson } from '@subwallet/extension-base/background/types';
+import { AccountAuthType } from '@subwallet/extension-base/background/types';
 import { ALL_ACCOUNT_KEY } from '@subwallet/extension-base/constants';
-import { _getChainSubstrateAddressPrefix, _isChainEvmCompatible } from '@subwallet/extension-base/services/chain-service/utils';
-import { isAccountAll, uniqueStringArray } from '@subwallet/extension-base/utils';
-import { DEFAULT_ACCOUNT_TYPES, EVM_ACCOUNT_TYPE, SUBSTRATE_ACCOUNT_TYPE } from '@subwallet/extension-koni-ui/constants';
+import { LedgerMustCheckType } from '@subwallet/extension-base/core/types';
+import { ledgerMustCheckNetwork } from '@subwallet/extension-base/core/utils';
+import { _getChainSubstrateAddressPrefix, _isChainEvmCompatible, _isChainInfoCompatibleWithAccountInfo } from '@subwallet/extension-base/services/chain-service/utils';
+import { AbstractAddressJson, AccountChainType, AccountJson, AccountProxy, AccountProxyType, AccountSignMode } from '@subwallet/extension-base/types';
+import { isAccountAll, reformatAddress, uniqueStringArray } from '@subwallet/extension-base/utils';
+import { DEFAULT_ACCOUNT_TYPES, EVM_ACCOUNT_TYPE, SUBSTRATE_ACCOUNT_TYPE, TON_ACCOUNT_TYPE } from '@subwallet/extension-koni-ui/constants';
 import { MODE_CAN_SIGN } from '@subwallet/extension-koni-ui/constants/signing';
-import { AccountAddressType, AccountSignMode, AccountType } from '@subwallet/extension-koni-ui/types';
-import { getLogoByNetworkKey } from '@subwallet/extension-koni-ui/utils';
-import reformatAddress from '@subwallet/extension-koni-ui/utils/account/reformatAddress';
+import { AccountAddressType, AccountType, BitcoinAccountInfo } from '@subwallet/extension-koni-ui/types';
 import { getNetworkKeyByGenesisHash } from '@subwallet/extension-koni-ui/utils/chain/getNetworkJsonByGenesisHash';
 import { AccountInfoByNetwork } from '@subwallet/extension-koni-ui/utils/types';
+import { isAddress, isBitcoinAddress, isCardanoAddress, isSubstrateAddress, isTonAddress } from '@subwallet/keyring';
+import { KeypairType } from '@subwallet/keyring/types';
+import { Web3LogoMap } from '@subwallet/react-ui/es/config-provider/context';
 
-import { decodeAddress, encodeAddress, isAddress, isEthereumAddress } from '@polkadot/util-crypto';
-import { KeypairType } from '@polkadot/util-crypto/types';
+import { decodeAddress, encodeAddress, isEthereumAddress } from '@polkadot/util-crypto';
+
+import { getLogoByNetworkKey } from '../common';
 
 export function getAccountType (address: string): AccountType {
   return isAccountAll(address) ? 'ALL' : isEthereumAddress(address) ? 'ETHEREUM' : 'SUBSTRATE';
@@ -37,6 +42,7 @@ export const getAccountInfoByNetwork = (networkMap: Record<string, NetworkJson>,
   };
 };
 
+// todo: recheck this function with current account
 export const findAccountByAddress = (accounts: AccountJson[], address?: string): AccountJson | null => {
   try {
     const isAllAccount = address && isAccountAll(address);
@@ -45,7 +51,7 @@ export const findAccountByAddress = (accounts: AccountJson[], address?: string):
       return null;
     }
 
-    const originAddress = isAccountAll(address) ? address : isEthereumAddress(address) ? address : encodeAddress(decodeAddress(address));
+    const originAddress = isAccountAll(address) ? address : reformatAddress(address);
     const result = accounts.find((account) => account.address.toLowerCase() === originAddress.toLowerCase());
 
     return result || null;
@@ -56,34 +62,34 @@ export const findAccountByAddress = (accounts: AccountJson[], address?: string):
   }
 };
 
+export const getSignModeByAccountProxy = (accountProxy: AccountProxy | null | undefined): AccountSignMode => {
+  return getSignMode(accountProxy?.accounts[0]);
+};
+
 export const getSignMode = (account: AccountJson | null | undefined): AccountSignMode => {
   if (!account) {
     return AccountSignMode.UNKNOWN;
   } else {
-    if (account.address === ALL_ACCOUNT_KEY) {
-      return AccountSignMode.ALL_ACCOUNT;
-    } else {
-      if (account.isInjected) {
-        return AccountSignMode.INJECTED;
-      }
-
-      if (account.isExternal) {
-        if (account.isHardware) {
-          if (account.isGeneric) {
-            return AccountSignMode.GENERIC_LEDGER;
-          } else {
-            return AccountSignMode.LEGACY_LEDGER;
-          }
-        } else if (account.isReadOnly) {
-          return AccountSignMode.READ_ONLY;
-        } else {
-          return AccountSignMode.QR;
-        }
-      } else {
-        return AccountSignMode.PASSWORD;
-      }
-    }
+    return account.signMode;
   }
+};
+
+export const getTransactionActionsByAccountProxy = (accountProxy: AccountProxy, accountProxies: AccountProxy[] = []): string[] => {
+  const transactionActionsSet = new Set<string>();
+
+  if (isAccountAll(accountProxy.id)) {
+    accountProxies.forEach((proxy) => {
+      proxy.accounts?.forEach(({ transactionActions }) => {
+        transactionActions?.forEach((action) => transactionActionsSet.add(action));
+      });
+    });
+  } else {
+    accountProxy.accounts.forEach(({ transactionActions }) => {
+      transactionActions?.forEach((action) => transactionActionsSet.add(action));
+    });
+  }
+
+  return Array.from(transactionActionsSet);
 };
 
 export const accountCanSign = (signMode: AccountSignMode): boolean => {
@@ -100,6 +106,10 @@ export const isNoAccount = (accounts: AccountJson[] | null): boolean => {
 
 export const searchAccountFunction = (item: AbstractAddressJson, searchText: string): boolean => {
   return item.address.toLowerCase().includes(searchText.toLowerCase()) || (item.name || '').toLowerCase().includes(searchText.toLowerCase());
+};
+
+export const searchAccountProxyFunction = (item: AccountProxy, searchText: string): boolean => {
+  return (item.name || '').toLowerCase().includes(searchText.toLowerCase());
 };
 
 export const formatAccountAddress = (account: AccountJson, networkInfo: _ChainInfo | null): string => {
@@ -166,8 +176,8 @@ export const convertKeyTypes = (authTypes: AccountAuthType[]): KeypairType[] => 
       result.push(EVM_ACCOUNT_TYPE);
     } else if (authType === 'substrate') {
       result.push(SUBSTRATE_ACCOUNT_TYPE);
-    } else if (authType === 'both') {
-      result.push(SUBSTRATE_ACCOUNT_TYPE, EVM_ACCOUNT_TYPE);
+    } else if (authType === 'ton') {
+      result.push(TON_ACCOUNT_TYPE);
     }
   }
 
@@ -176,12 +186,147 @@ export const convertKeyTypes = (authTypes: AccountAuthType[]): KeypairType[] => 
   return _rs.length ? _rs : DEFAULT_ACCOUNT_TYPES;
 };
 
-type LedgerMustCheckType = 'polkadot' | 'migration' | 'unnecessary'
+export function getBitcoinAccountDetails (type: KeypairType): BitcoinAccountInfo {
+  const result: BitcoinAccountInfo = {
+    name: 'Unknown',
+    network: 'Unknown',
+    order: 99
+  };
 
-export const ledgerMustCheckNetwork = (account: AccountJson | null): LedgerMustCheckType => {
-  if (account && account.isHardware && account.isGeneric && !isEthereumAddress(account.address)) {
-    return account.originGenesisHash ? 'migration' : 'polkadot';
-  } else {
-    return 'unnecessary';
+  switch (type) {
+    case 'bitcoin-84':
+      result.logoKey = 'bitcoin';
+      result.name = 'Native SegWit';
+      result.network = 'Bitcoin';
+      result.order = 1;
+      break;
+
+    case 'bittest-84':
+      result.logoKey = 'bitcoinTestnet';
+      result.name = 'Native SegWit';
+      result.network = 'Bitcoin Testnet';
+      result.order = 2;
+      break;
+
+    case 'bitcoin-86':
+      result.logoKey = 'bitcoin';
+      result.name = 'Taproot';
+      result.network = 'Bitcoin';
+      result.order = 3;
+      break;
+
+    case 'bittest-86':
+      result.logoKey = 'bitcoinTestnet';
+      result.name = 'Taproot';
+      result.network = 'Bitcoin Testnet';
+      result.order = 4;
+      break;
+
+    case 'bitcoin-44':
+      result.logoKey = 'bitcoin';
+      result.name = 'Legacy';
+      result.network = 'Bitcoin';
+      result.order = 5;
+      break;
+
+    case 'bittest-44':
+      result.logoKey = 'bitcoinTestnet';
+      result.name = 'Legacy';
+      result.network = 'Bitcoin Testnet';
+      result.order = 6;
+      break;
+  }
+
+  return result;
+}
+
+// todo:
+//  - support bitcoin
+export function getReformatedAddressRelatedToChain (accountJson: AccountJson, chainInfo: _ChainInfo): string | undefined {
+  if (accountJson.specialChain && accountJson.specialChain !== chainInfo.slug) {
+    return undefined;
+  }
+
+  if (!_isChainInfoCompatibleWithAccountInfo(chainInfo, accountJson)) {
+    return undefined;
+  }
+
+  if (accountJson.chainType === AccountChainType.SUBSTRATE && chainInfo.substrateInfo) {
+    return reformatAddress(accountJson.address, chainInfo.substrateInfo.addressPrefix);
+  } else if (accountJson.chainType === AccountChainType.ETHEREUM && chainInfo.evmInfo) {
+    return accountJson.address;
+  } else if (accountJson.chainType === AccountChainType.TON && chainInfo.tonInfo) {
+    return reformatAddress(accountJson.address, chainInfo.isTestnet ? 0 : 1);
+  } else if (accountJson.chainType === AccountChainType.CARDANO && chainInfo.cardanoInfo) {
+    return reformatAddress(accountJson.address, chainInfo.isTestnet ? 0 : 1);
+  } else if (accountJson.chainType === AccountChainType.BITCOIN && chainInfo.bitcoinInfo) {
+    return accountJson.address;
+  }
+
+  return undefined;
+}
+
+export const ledgerGenericAccountProblemCheck = (accountProxy: AccountProxy | null | undefined): LedgerMustCheckType => {
+  if (accountProxy && accountProxy.accountType === AccountProxyType.LEDGER && !accountProxy.specialChain) {
+    if (accountProxy.chainTypes.includes(AccountChainType.SUBSTRATE)) {
+      return ledgerMustCheckNetwork(accountProxy.accounts[0]);
+    }
+
+    if (accountProxy.chainTypes.includes(AccountChainType.ETHEREUM) && accountProxy.accounts[0].isSubstrateECDSA) {
+      return ledgerMustCheckNetwork(accountProxy.accounts[0]);
+    }
+  }
+
+  return 'unnecessary';
+};
+
+export const isAddressAllowedWithAuthType = (address: string, authAccountTypes?: AccountAuthType[]) => {
+  if (isEthereumAddress(address) && authAccountTypes?.includes('evm')) {
+    return true;
+  }
+
+  if (isSubstrateAddress(address) && authAccountTypes?.includes('substrate')) {
+    return true;
+  }
+
+  if (isTonAddress(address) && authAccountTypes?.includes('ton')) {
+    return true;
+  }
+
+  if (isCardanoAddress(address) && authAccountTypes?.includes('cardano')) {
+    return true;
+  }
+
+  if (isBitcoinAddress(address) && authAccountTypes?.includes('bitcoin')) {
+    return true;
+  }
+
+  return false;
+};
+
+export function getChainTypeLogoMap (logoMap: Web3LogoMap): Record<string, string> {
+  return {
+    [AccountChainType.SUBSTRATE]: logoMap.network.polkadot as string,
+    [AccountChainType.ETHEREUM]: logoMap.network.ethereum as string,
+    [AccountChainType.BITCOIN]: logoMap.network.bitcoin as string,
+    [AccountChainType.TON]: logoMap.network.ton as string,
+    [AccountChainType.CARDANO]: logoMap.network.cardano as string,
+    [AccountChainType.BITCOIN]: logoMap.network.bitcoin as string
+  };
+}
+
+export const getBitcoinKeypairAttributes = (keyPairType: KeypairType): { label: string; schema: string } => {
+  switch (keyPairType) {
+    case 'bitcoin-44':
+    case 'bittest-44':
+      return { label: 'Legacy', schema: 'orange-7' };
+    case 'bitcoin-86':
+    case 'bittest-86':
+      return { label: 'Taproot', schema: 'cyan-7' };
+    case 'bitcoin-84':
+    case 'bittest-84':
+      return { label: 'Native SegWit', schema: 'lime-7' };
+    default:
+      return { label: '', schema: '' };
   }
 };

@@ -4,38 +4,42 @@
 import { _ChainAsset } from '@subwallet/chain-list/types';
 import { ExtrinsicType, NotificationType } from '@subwallet/extension-base/background/KoniTypes';
 import { _handleDisplayForEarningError, _handleDisplayInsufficientEarningError } from '@subwallet/extension-base/core/logic-validation/earning';
-import { _getAssetDecimals, _getAssetSymbol, _getSubstrateGenesisHash, _isChainEvmCompatible } from '@subwallet/extension-base/services/chain-service/utils';
+import { _getAssetDecimals, _getAssetSymbol } from '@subwallet/extension-base/services/chain-service/utils';
 import { isLendingPool, isLiquidPool } from '@subwallet/extension-base/services/earning-service/utils';
 import { SWTransactionResponse } from '@subwallet/extension-base/services/transaction-service/types';
-import { NominationPoolInfo, OptimalYieldPath, OptimalYieldPathParams, SubmitJoinNativeStaking, SubmitJoinNominationPool, SubmitYieldJoinData, ValidatorInfo, YieldPoolType, YieldStepType } from '@subwallet/extension-base/types';
+import { NominationPoolInfo, OptimalYieldPath, OptimalYieldPathParams, ProcessType, SlippageType, SubmitJoinNativeStaking, SubmitJoinNominationPool, SubmitYieldJoinData, ValidatorInfo, YieldPoolType, YieldStepType } from '@subwallet/extension-base/types';
 import { addLazy } from '@subwallet/extension-base/utils';
-import { AccountSelector, AlertBox, AmountInput, EarningPoolSelector, EarningValidatorSelector, HiddenInput, InfoIcon, LoadingScreen, MetaInfo } from '@subwallet/extension-koni-ui/components';
+import { getId } from '@subwallet/extension-base/utils/getId';
+import { AccountAddressSelector, AlertBox, AmountInput, EarningPoolSelector, EarningValidatorSelector, HiddenInput, InfoIcon, LoadingScreen, MetaInfo } from '@subwallet/extension-koni-ui/components';
 import { EarningProcessItem } from '@subwallet/extension-koni-ui/components/Earning';
 import { getInputValuesFromString } from '@subwallet/extension-koni-ui/components/Field/AmountInput';
 import { EarningInstructionModal } from '@subwallet/extension-koni-ui/components/Modal/Earning';
-import { EARNING_INSTRUCTION_MODAL, STAKE_ALERT_DATA } from '@subwallet/extension-koni-ui/constants';
-import { useChainConnection, useFetchChainState, useGetBalance, useGetNativeTokenSlug, useGetYieldPositionForSpecificAccount, useInitValidateTransaction, useNotification, usePreCheckAction, useRestoreTransaction, useSelector, useTransactionContext, useWatchTransaction, useYieldPositionDetail } from '@subwallet/extension-koni-ui/hooks';
-import { fetchPoolTarget, getOptimalYieldPath, submitJoinYieldPool, validateYieldProcess } from '@subwallet/extension-koni-ui/messaging';
+import { SlippageModal } from '@subwallet/extension-koni-ui/components/Modal/Swap';
+import { EARNING_INSTRUCTION_MODAL, EARNING_SLIPPAGE_MODAL, STAKE_ALERT_DATA } from '@subwallet/extension-koni-ui/constants';
+import { MktCampaignModalContext } from '@subwallet/extension-koni-ui/contexts/MktCampaignModalContext';
+import { useChainConnection, useCoreCreateReformatAddress, useCreateGetSubnetStakingTokenName, useExtensionDisplayModes, useFetchChainState, useGetBalance, useGetNativeTokenSlug, useGetYieldPositionForSpecificAccount, useInitValidateTransaction, useNotification, useOneSignProcess, usePreCheckAction, useRestoreTransaction, useSelector, useSidePanelUtils, useTransactionContext, useWatchTransaction, useYieldPositionDetail } from '@subwallet/extension-koni-ui/hooks';
+import useGetConfirmationByScreen from '@subwallet/extension-koni-ui/hooks/campaign/useGetConfirmationByScreen';
+import { useTaoStakingFee } from '@subwallet/extension-koni-ui/hooks/earning/useTaoStakingFee';
+import { fetchPoolTarget, getOptimalYieldPath, submitJoinYieldPool, submitProcess, validateYieldProcess, windowOpen } from '@subwallet/extension-koni-ui/messaging';
 import { DEFAULT_YIELD_PROCESS, EarningActionType, earningReducer } from '@subwallet/extension-koni-ui/reducer';
 import { store } from '@subwallet/extension-koni-ui/stores';
-import { EarnParams, FormCallbacks, FormFieldData, ThemeProps } from '@subwallet/extension-koni-ui/types';
-import { convertFieldToObject, isAccountAll, parseNominations, reformatAddress, simpleCheckForm } from '@subwallet/extension-koni-ui/utils';
-import { ActivityIndicator, Button, ButtonProps, Form, Icon, ModalContext, Number } from '@subwallet/react-ui';
+import { AccountAddressItemType, EarnParams, FormCallbacks, FormFieldData, ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { convertFieldToObject, getExtrinsicTypeByPoolInfo, parseNominations, reformatAddress, simpleCheckForm } from '@subwallet/extension-koni-ui/utils';
+import { ActivityIndicator, Button, ButtonProps, Form, Icon, Logo, ModalContext, Number, Tooltip } from '@subwallet/react-ui';
 import BigN from 'bignumber.js';
 import CN from 'classnames';
-import { CheckCircle, PlusCircle } from 'phosphor-react';
+import { CheckCircle, Info, PencilSimpleLine, PlusCircle } from 'phosphor-react';
 import React, { useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
-
-import { isEthereumAddress } from '@polkadot/util-crypto';
 
 import { getJoinYieldParams } from '../helper';
 import { EarnOutlet, FreeBalance, FreeBalanceToEarn, TransactionContent, TransactionFooter } from '../parts';
 
 type Props = ThemeProps;
 
-const hideFields: Array<keyof EarnParams> = ['slug', 'chain', 'asset'];
+const hideFields: Array<keyof EarnParams> = ['slug', 'chain', 'asset', 'fromAccountProxy'];
 const validateFields: Array<keyof EarnParams> = ['from'];
 const loadingStepPromiseKey = 'earning.step.loading';
 
@@ -47,15 +51,18 @@ export const insufficientXCMMessages = ['You can only enter a maximum'];
 const Component = () => {
   const { t } = useTranslation();
   const notify = useNotification();
-  const { activeModal } = useContext(ModalContext);
-
+  const { activeModal, inactiveModal } = useContext(ModalContext);
+  const navigate = useNavigate();
+  const { closeSidePanel } = useSidePanelUtils();
+  const { isExpanseMode, isSidePanelMode } = useExtensionDisplayModes();
+  const mktCampaignModalContext = useContext(MktCampaignModalContext);
   const { closeAlert, defaultData, goBack, onDone,
     openAlert, persistData,
     setBackProps, setIsDisableHeader, setSubHeaderRightButtons } = useTransactionContext<EarnParams>();
 
-  const { slug } = defaultData;
+  const { fromAccountProxy, slug } = defaultData;
 
-  const { accounts, isAllAccount } = useSelector((state) => state.accountState);
+  const { accountProxies, isAllAccount } = useSelector((state) => state.accountState);
   const chainInfoMap = useSelector((state) => state.chainStore.chainInfoMap);
   const poolInfoMap = useSelector((state) => state.earning.poolInfoMap);
   const poolTargetsMap = useSelector((state) => state.earning.poolTargetsMap);
@@ -65,13 +72,16 @@ const Component = () => {
 
   const [form] = Form.useForm<EarnParams>();
   const formDefault = useMemo((): EarnParams => ({ ...defaultData }), [defaultData]);
-
+  const { getCurrentConfirmation, renderConfirmationButtons } = useGetConfirmationByScreen('stake');
   const fromValue = useWatchTransaction('from', form, defaultData);
   const amountValue = useWatchTransaction('value', form, defaultData);
   const chainValue = useWatchTransaction('chain', form, defaultData);
   const poolTargetValue = useWatchTransaction('target', form, defaultData);
 
+  const getSubnetStakingTokenName = useCreateGetSubnetStakingTokenName();
+  const oneSign = useOneSignProcess(fromValue);
   const nativeTokenSlug = useGetNativeTokenSlug(chainValue);
+  const getReformatAddress = useCoreCreateReformatAddress();
 
   const isClickInfoButtonRef = useRef<boolean>(false);
 
@@ -104,11 +114,35 @@ const Component = () => {
   const [submitLoading, setSubmitLoading] = useState(false);
   // const [checkMintLoading, setCheckMintLoading] = useState(false);
   const [isFormInvalid, setIsFormInvalid] = useState(true);
+  const [maxSlippage, setMaxSlippage] = useState<SlippageType>({ slippage: new BigN(0.005), isCustomType: true });
 
   const chainState = useFetchChainState(poolInfo?.chain || '');
 
+  const onHandleOneSignConfirmation = useCallback((transactionProcessId: string) => {
+    if (!isExpanseMode) {
+      windowOpen({
+        allowedPath: '/transaction-submission',
+        params: {
+          'transaction-process-id': transactionProcessId
+        }
+      }).then(window.close).catch(console.log);
+
+      isSidePanelMode && closeSidePanel();
+    } else {
+      navigate(`/transaction-submission?transaction-process-id=${transactionProcessId}`);
+    }
+  }, [closeSidePanel, isExpanseMode, isSidePanelMode, navigate]);
+
+  const currentConfirmation = useMemo(() => {
+    if (slug) {
+      return getCurrentConfirmation([slug]);
+    } else {
+      return undefined;
+    }
+  }, [slug, getCurrentConfirmation]);
+
   const mustChooseTarget = useMemo(
-    () => [YieldPoolType.NATIVE_STAKING, YieldPoolType.NOMINATION_POOL].includes(poolType),
+    () => [YieldPoolType.NATIVE_STAKING, YieldPoolType.SUBNET_STAKING, YieldPoolType.NOMINATION_POOL].includes(poolType),
     [poolType]
   );
 
@@ -160,20 +194,6 @@ const Component = () => {
 
     return result;
   }, [chainAsset, poolInfo]);
-
-  const isDisabledButton = useMemo(
-    () =>
-      // checkMintLoading ||
-      stepLoading ||
-      !!connectionError ||
-      !amountValue ||
-      !isBalanceReady ||
-      isFormInvalid ||
-      submitLoading ||
-      targetLoading ||
-      (mustChooseTarget && !poolTargetValue),
-    [stepLoading, connectionError, amountValue, isBalanceReady, isFormInvalid, submitLoading, targetLoading, mustChooseTarget, poolTargetValue]
-  );
 
   const inputAsset = useMemo(
     () => chainAsset[poolInfo?.metadata?.inputAsset],
@@ -233,7 +253,7 @@ const Component = () => {
         }
 
         return [];
-      } else if (YieldPoolType.NATIVE_STAKING === poolType) {
+      } else if (YieldPoolType.NATIVE_STAKING === poolType || YieldPoolType.SUBNET_STAKING === poolType) {
         const validatorList = _poolTargets as ValidatorInfo[];
 
         if (!validatorList) {
@@ -261,35 +281,54 @@ const Component = () => {
     }
   }, [poolTargetValue, poolTargetsMap, poolType, slug]);
 
-  const accountSelectorList = useMemo(() => {
-    const chainInfo = chainInfoMap[poolChain];
+  // todo: will convert logic to util if is necessary
+  const accountAddressItems = useMemo(() => {
+    const chainInfo = poolChain ? chainInfoMap[poolChain] : undefined;
 
     if (!chainInfo) {
       return [];
     }
 
-    return accounts.filter((a) => {
-      if (isAccountAll(a.address)) {
-        return false;
+    const result: AccountAddressItemType[] = [];
+
+    accountProxies.forEach((ap) => {
+      if (!(!fromAccountProxy || ap.id === fromAccountProxy)) {
+        return;
       }
 
-      if (a.genesisHash && _getSubstrateGenesisHash(chainInfo) !== a.genesisHash) {
-        return false;
-      }
+      ap.accounts.forEach((a) => {
+        const address = getReformatAddress(a, chainInfo);
 
-      return _isChainEvmCompatible(chainInfo) === isEthereumAddress(a.address);
+        if (address) {
+          result.push({
+            accountName: ap.name,
+            accountProxyId: ap.id,
+            accountProxyType: ap.accountType,
+            accountType: a.type,
+            address
+          });
+        }
+      });
     });
-  }, [accounts, chainInfoMap, poolChain]);
+
+    return result;
+  }, [accountProxies, chainInfoMap, fromAccountProxy, getReformatAddress, poolChain]);
 
   const onFieldsChange: FormCallbacks<EarnParams>['onFieldsChange'] = useCallback((changedFields: FormFieldData[], allFields: FormFieldData[]) => {
     // TODO: field change
-    const { empty, error } = simpleCheckForm(allFields, ['--asset']);
+    const { empty, error } = simpleCheckForm(allFields, ['--asset', '--fromAccountProxy']);
 
     const values = convertFieldToObject<EarnParams>(allFields);
 
+    const isFromChanged = changedFields.some((field) => field.name.toString() === 'from');
+
+    if (isFromChanged && (poolType === YieldPoolType.NOMINATION_POOL || poolType === YieldPoolType.NATIVE_STAKING)) {
+      form.resetFields(['target']);
+    }
+
     setIsFormInvalid(empty || error);
     persistData(values);
-  }, [persistData]);
+  }, [form, persistData, poolType]);
 
   const handleDataForInsufficientAlert = useCallback(() => {
     const _assetDecimals = nativeAsset?.decimals || 0;
@@ -313,7 +352,7 @@ const Component = () => {
           type: NotificationType.ERROR,
           content: t(balanceDisplayInfo.message, { replace: { minJoinPool, symbol, chain } }),
           okButton: {
-            text: t('I understand'),
+            text: t('ui.TRANSACTION.screen.Transaction.Earn.iUnderstand'),
             onClick: closeAlert,
             icon: CheckCircle
           }
@@ -327,11 +366,11 @@ const Component = () => {
         return;
       } else if (insufficientXCMMessages.some((v) => error.message.includes(v))) {
         openAlert({
-          title: t('Insufficient balance'),
+          title: t('ui.TRANSACTION.screen.Transaction.Earn.insufficientBalance'),
           type: NotificationType.ERROR,
           content: error.message,
           okButton: {
-            text: t('I understand'),
+            text: t('ui.TRANSACTION.screen.Transaction.Earn.iUnderstand'),
             onClick: closeAlert,
             icon: CheckCircle
           }
@@ -362,7 +401,7 @@ const Component = () => {
   const onSuccess = useCallback(
     (lastStep: boolean, needRollback: boolean): ((rs: SWTransactionResponse) => boolean) => {
       return (rs: SWTransactionResponse): boolean => {
-        const { errors: _errors, id, warnings } = rs;
+        const { errors: _errors, id, processId, warnings } = rs;
 
         if (_errors.length || warnings.length) {
           const error = _errors[0]; // we only handle the first error for now
@@ -399,7 +438,7 @@ const Component = () => {
           });
 
           if (lastStep) {
-            onDone(id);
+            processId ? onHandleOneSignConfirmation(processId) : onDone(id);
 
             return false;
           }
@@ -410,17 +449,28 @@ const Component = () => {
         }
       };
     },
-    [notify, onDone, onError, t]
+    [notify, onDone, onError, onHandleOneSignConfirmation, t]
   );
 
+  const { earningRate, earningSlippage, stakingFee } = useTaoStakingFee(
+    poolInfo,
+    amountValue,
+    assetDecimals,
+    poolInfo.metadata.subnetData?.netuid || 0,
+    ExtrinsicType.STAKING_BOND,
+    setSubmitLoading
+  );
+
+  const netuid = useMemo(() => poolInfo.metadata.subnetData?.netuid, [poolInfo.metadata.subnetData]);
   const onSubmit: FormCallbacks<EarnParams>['onFinish'] = useCallback((values: EarnParams) => {
     const transactionBlockProcess = () => {
       setSubmitLoading(true);
       setIsDisableHeader(true);
       const { from, slug, target, value: _currentAmount } = values;
+      let processId = processState.processId;
 
       const getData = (submitStep: number): SubmitYieldJoinData => {
-        if ([YieldPoolType.NOMINATION_POOL, YieldPoolType.NATIVE_STAKING].includes(poolInfo.type) && target) {
+        if ([YieldPoolType.NOMINATION_POOL, YieldPoolType.NATIVE_STAKING, YieldPoolType.SUBNET_STAKING].includes(poolInfo.type) && target) {
           const targets = poolTargets;
 
           if (poolInfo.type === YieldPoolType.NOMINATION_POOL) {
@@ -430,14 +480,20 @@ const Component = () => {
               slug: slug,
               address: from,
               amount: _currentAmount,
-              selectedPool
+              selectedPool,
+              selectedValidators: targets
             } as SubmitJoinNominationPool;
           } else {
             return {
               slug: slug,
               address: from,
               amount: _currentAmount,
-              selectedValidators: targets
+              selectedValidators: targets,
+              subnetData: {
+                netuid: netuid,
+                slippage: maxSlippage?.slippage.toNumber(),
+                stakingFee: stakingFee
+              }
             } as SubmitJoinNativeStaking;
           }
         } else {
@@ -451,14 +507,19 @@ const Component = () => {
       };
 
       const submitData = async (step: number): Promise<boolean> => {
-        dispatchProcessState({
-          type: EarningActionType.STEP_SUBMIT,
-          payload: null
-        });
         const isFirstStep = step === 0;
         const isLastStep = step === processState.steps.length - 1;
         const needRollback = step === 1;
         const data = getData(step);
+
+        if (isFirstStep) {
+          processId = getId();
+        }
+
+        dispatchProcessState({
+          type: EarningActionType.STEP_SUBMIT,
+          payload: isFirstStep ? { processId } : null
+        });
 
         try {
           if (isFirstStep) {
@@ -486,19 +547,38 @@ const Component = () => {
               return await submitData(step + 1);
             }
           } else {
-            const submitPromise: Promise<SWTransactionResponse> = submitJoinYieldPool({
-              path: path,
-              data: data,
-              currentStep: step
-            });
+            if (oneSign && path.steps.length > 2) {
+              const submitPromise: Promise<SWTransactionResponse> = submitProcess({
+                address: from,
+                id: processId,
+                type: ProcessType.EARNING,
+                request: {
+                  path: path,
+                  data: data,
+                  currentStep: step
+                }
+              });
 
-            const rs = await submitPromise;
-            const success = onSuccess(isLastStep, needRollback)(rs);
+              const rs = await submitPromise;
 
-            if (success) {
-              return await submitData(step + 1);
+              onSuccess(true, needRollback)(rs);
+
+              return true;
             } else {
-              return false;
+              const submitPromise: Promise<SWTransactionResponse> = submitJoinYieldPool({
+                path: path,
+                data: data,
+                currentStep: step
+              });
+
+              const rs = await submitPromise;
+              const success = onSuccess(isLastStep, needRollback)(rs);
+
+              if (success) {
+                return await submitData(step + 1);
+              } else {
+                return false;
+              }
             }
           }
         } catch (e) {
@@ -529,26 +609,205 @@ const Component = () => {
         content:
           (<>
             <div className={'earning-alert-content'}>
-              {t(`You're currently staking ${symbol} via direct nomination. Due to ${originChain}'s upcoming changes, continuing to stake via nomination pool will lead to pool-staked funds being frozen (e.g., can't unstake, claim rewards)`)}
+              {t('ui.TRANSACTION.screen.Transaction.Earn.dualStakingFreezeWarning', { replace: { symbol: symbol, originChain: originChain } })}
             </div>
           </>),
-        title: t('Continue staking?'),
+        title: t('ui.TRANSACTION.screen.Transaction.Earn.continueStaking'),
         okButton: {
-          text: t('Continue'),
+          text: t('ui.TRANSACTION.screen.Transaction.Earn.continue'),
           onClick: () => {
             closeAlert();
             transactionBlockProcess();
           }
         },
         cancelButton: {
-          text: t('Cancel'),
+          text: t('ui.TRANSACTION.screen.Transaction.Earn.cancel'),
           onClick: closeAlert
         }
       });
     } else {
       transactionBlockProcess();
     }
-  }, [chainInfoMap, chainStakingBoth, closeAlert, currentStep, onError, onSuccess, openAlert, poolInfo, poolTargets, processState.feeStructure, processState.steps, setIsDisableHeader, t]);
+  }, [chainInfoMap, chainStakingBoth, closeAlert, currentStep, maxSlippage?.slippage, netuid, onError, onSuccess, oneSign, openAlert, poolInfo, poolTargets, processState.feeStructure, processState.processId, processState.steps, setIsDisableHeader, setSubmitLoading, stakingFee, t]);
+
+  const onClickSubmit = useCallback((values: EarnParams) => {
+    if (currentConfirmation) {
+      mktCampaignModalContext.openModal({
+        type: 'confirmation',
+        title: currentConfirmation.name,
+        message: currentConfirmation.content,
+        externalButtons: renderConfirmationButtons(mktCampaignModalContext.hideModal, () => {
+          onSubmit(values);
+          mktCampaignModalContext.hideModal();
+        })
+      });
+    } else {
+      onSubmit(values);
+    }
+  }, [currentConfirmation, mktCampaignModalContext, onSubmit, renderConfirmationButtons]);
+
+  const isSubnetStaking = useMemo(() => [YieldPoolType.SUBNET_STAKING].includes(poolType), [poolType]);
+  const subnetToken = useMemo(() => {
+    return getSubnetStakingTokenName(poolInfo.chain, poolInfo.metadata.subnetData?.netuid || 0);
+  }, [getSubnetStakingTokenName, poolInfo.chain, poolInfo.metadata.subnetData?.netuid]);
+
+  // For subnet staking
+  const [isSlippageModalVisible, setIsSlippageModalVisible] = useState<boolean>(false);
+
+  const isDisabledSubnetContent = useMemo(
+    () =>
+      !isSubnetStaking ||
+      !amountValue ||
+      (mustChooseTarget && !poolTargetValue),
+
+    [isSubnetStaking, amountValue, mustChooseTarget, poolTargetValue]
+  );
+  const alertBoxRef = useRef<HTMLDivElement>(null);
+  const [hasScrolled, setHasScrolled] = useState<boolean>(false);
+
+  const isSlippageAcceptable = useMemo(() => {
+    if (earningSlippage === null || !amountValue) {
+      return true;
+    }
+
+    return earningSlippage <= maxSlippage.slippage.toNumber();
+  }, [earningSlippage, maxSlippage, amountValue]);
+
+  useEffect(() => {
+    if (!isSlippageAcceptable && !hasScrolled && alertBoxRef.current) {
+      alertBoxRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setHasScrolled(true);
+    }
+  }, [isSlippageAcceptable, hasScrolled]);
+
+  const onSelectSlippage = useCallback((slippage: SlippageType) => {
+    setMaxSlippage(slippage);
+  }, []);
+
+  const closeSlippageModal = useCallback(() => {
+    inactiveModal(EARNING_SLIPPAGE_MODAL);
+    setIsSlippageModalVisible(false);
+  }, [inactiveModal]);
+
+  const onOpenSlippageModal = useCallback(() => {
+    setIsSlippageModalVisible(true);
+    activeModal(EARNING_SLIPPAGE_MODAL);
+  }, [activeModal]);
+
+  const renderSubnetStaking = useCallback(() => {
+    return (
+      <>
+        <MetaInfo.Default
+          className='__label-bottom'
+          label={t('ui.TRANSACTION.screen.Transaction.Earn.subnet')}
+        >
+          <div className='__subnet-wrapper'>
+            <Logo
+              className='__item-logo'
+              isShowSubLogo={false}
+              network={poolChain}
+              shape='circle'
+              size={24}
+              token={subnetToken}
+            />
+            <span
+              className='chain-name'
+              style={{ color: '#A6A6A6' }}
+            >
+              {poolInfo.metadata.shortName}
+            </span>
+          </div>
+        </MetaInfo.Default>
+
+        {!isDisabledSubnetContent && earningRate > 0 && (
+          <>
+            <MetaInfo.Number
+              className='__label-bottom'
+              decimals={assetDecimals}
+              label={t('ui.TRANSACTION.screen.Transaction.Earn.expectedAlphaAmount')}
+              suffix={poolInfo.metadata?.subnetData?.subnetSymbol || ''}
+              value={BigN(amountValue).multipliedBy(1 / earningRate)}
+            />
+            <MetaInfo.Default
+              className='__label-bottom'
+              label={t('ui.TRANSACTION.screen.Transaction.Earn.conversionRate')}
+            >
+              <div className='__subnet-rate'>
+                <span
+                  className='chain-name'
+                  style={{ color: '#A6A6A6' }}
+                >
+                  {`1 ${inputAsset.symbol} = `}
+                </span>
+                <Number
+                  className='__label-bottom'
+                  decimal={assetDecimals}
+                  suffix={poolInfo.metadata?.subnetData?.subnetSymbol || ''}
+                  value={BigN(1).multipliedBy(10 ** assetDecimals).multipliedBy(1 / earningRate)}
+                />
+              </div>
+            </MetaInfo.Default>
+          </>
+        )}
+
+        <MetaInfo.Default
+          label={
+            <Tooltip
+              placement={'topLeft'}
+              title={'Transaction will not be executed if the price changes more than this slippage'}
+            >
+              <div className={'__max-slippage'}>
+                <div className='__label-bottom'>{t('ui.TRANSACTION.screen.Transaction.Earn.slippage')}</div>
+                <Icon
+                  className='__label-bottom'
+                  customSize={'16px'}
+                  phosphorIcon={Info}
+                  size='sm'
+                />
+              </div>
+            </Tooltip>
+          }
+        >
+          <div className='__slippage-wrapper'>
+            <span
+              className='chain-name'
+              style={{ color: isSlippageAcceptable ? '#A6A6A6' : '#BF1616' }}
+            >
+              {+(maxSlippage.slippage.toNumber() * 100).toFixed(10)}%
+            </span>
+            <div
+              className='__slippage-editor-button'
+              onClick={onOpenSlippageModal}
+            >
+              <Icon
+                className='__slippage-editor-button-icon'
+                phosphorIcon={PencilSimpleLine}
+                size='xs'
+              />
+            </div>
+          </div>
+        </MetaInfo.Default>
+      </>
+    );
+  }, [amountValue, assetDecimals, earningRate, inputAsset.symbol, isDisabledSubnetContent, isSlippageAcceptable, maxSlippage.slippage, onOpenSlippageModal, poolChain, poolInfo.metadata.shortName, poolInfo.metadata?.subnetData?.subnetSymbol, subnetToken, t]);
+
+  // For subnet staking
+
+  const isDisabledButton = useMemo(
+    () =>
+      // checkMintLoading ||
+      stepLoading ||
+      !!connectionError ||
+      !amountValue ||
+      !isBalanceReady ||
+      isFormInvalid ||
+      submitLoading ||
+      targetLoading ||
+      !isSlippageAcceptable ||
+      (mustChooseTarget && !poolTargetValue),
+
+    [stepLoading, connectionError, amountValue, isBalanceReady, isFormInvalid, submitLoading, targetLoading, isSlippageAcceptable, mustChooseTarget, poolTargetValue]
+  );
 
   const renderMetaInfo = useCallback(() => {
     const value = amountValue ? parseFloat(amountValue) / 10 ** assetDecimals : 0;
@@ -597,7 +856,7 @@ const Component = () => {
               <MetaInfo.Number
                 decimals={0}
                 key={item.slug}
-                label={t("You'll receive")}
+                label={t('ui.TRANSACTION.screen.Transaction.Earn.youllReceive')}
                 suffix={_getAssetSymbol(derivativeAssetInfo)}
                 value={value / item.exchangeRate}
               />
@@ -605,22 +864,28 @@ const Component = () => {
           })}
         {(
           <MetaInfo.Number
+            className='__label-bottom'
             decimals={assetDecimals}
-            label={t('Minimum active stake')}
+            label={t('ui.TRANSACTION.screen.Transaction.Earn.minimumActiveStake')}
             suffix={assetSymbol}
             value={minJoinPool || 0}
           />
         )}
 
-        <MetaInfo.Chain
-          chain={chainValue}
-          label={t('Network')}
-        />
-
+        {!isSubnetStaking
+          ? (
+            <MetaInfo.Chain
+              chain={chainValue}
+              label={t('ui.TRANSACTION.screen.Transaction.Earn.network')}
+            />
+          )
+          : (renderSubnetStaking())
+        }
         {showFee && (
           <MetaInfo.Number
+            className='__label-bottom'
             decimals={0}
-            label={t('Estimated fee')}
+            label={t('ui.TRANSACTION.screen.Transaction.Earn.estimatedFee')}
             prefix={(currencyData?.isPrefix && currencyData.symbol) || ''}
             suffix={(!currencyData?.isPrefix && currencyData?.symbol) || ''}
             value={estimatedFee}
@@ -628,29 +893,11 @@ const Component = () => {
         )}
       </MetaInfo>
     );
-  }, [amountValue, assetDecimals, inputAsset.symbol, poolInfo.statistic, poolInfo.metadata, poolInfo?.type, t, chainValue, currencyData?.isPrefix, currencyData.symbol, estimatedFee, poolTargets, chainAsset]);
+  }, [amountValue, assetDecimals, chainAsset, chainValue, currencyData?.isPrefix, currencyData.symbol, estimatedFee, inputAsset.symbol, isSubnetStaking, poolInfo.metadata, poolInfo.statistic, poolInfo?.type, poolTargets, renderSubnetStaking, t]);
 
   const onPreCheck = usePreCheckAction(fromValue);
 
-  const exType = useMemo(() => {
-    if (poolType === YieldPoolType.NOMINATION_POOL || poolType === YieldPoolType.NATIVE_STAKING) {
-      return ExtrinsicType.STAKING_BOND;
-    }
-
-    if (poolType === YieldPoolType.LIQUID_STAKING) {
-      if (chainValue === 'moonbeam') {
-        return ExtrinsicType.MINT_STDOT;
-      }
-
-      return ExtrinsicType.MINT_LDOT;
-    }
-
-    if (poolType === YieldPoolType.LENDING) {
-      return ExtrinsicType.MINT_LDOT;
-    }
-
-    return ExtrinsicType.STAKING_BOND;
-  }, [poolType, chainValue]);
+  const exType = useMemo(() => getExtrinsicTypeByPoolInfo({ chain: chainValue, type: poolType, slug }), [poolType, chainValue, slug]);
 
   useRestoreTransaction(form);
   useInitValidateTransaction(validateFields, form, defaultData);
@@ -660,16 +907,16 @@ const Component = () => {
       goBack();
     } else {
       openAlert({
-        title: t('Cancel earning process?'),
+        title: t('ui.TRANSACTION.screen.Transaction.Earn.cancelEarningProcess'),
         type: NotificationType.WARNING,
-        content: t('Going back will cancel the current earning process. Do you wish to cancel?'),
+        content: t('ui.TRANSACTION.screen.Transaction.Earn.confirmCancelEarningProcess'),
         okButton: {
-          text: t('Cancel earning'),
+          text: t('ui.TRANSACTION.screen.Transaction.Earn.cancelEarning'),
           onClick: goBack,
           schema: 'warning'
         },
         cancelButton: {
-          text: t('Not now'),
+          text: t('ui.TRANSACTION.screen.Transaction.Earn.notNow'),
           onClick: closeAlert
         }
       });
@@ -751,13 +998,13 @@ const Component = () => {
         if (!isConnectingChainSuccess) {
           setIsLoadingChainConnection(false);
           openAlert({
-            title: t('Connection lost'),
+            title: t('ui.TRANSACTION.screen.Transaction.Earn.connectionLost'),
             type: NotificationType.ERROR,
             content: altChain
-              ? t(`${poolChainName} network or ${altChainName} network has lost connection. Re-enable the network and try again`)
-              : t(`${poolChainName} network has lost connection. Re-enable the network and try again`),
+              ? t('ui.TRANSACTION.screen.Transaction.Earn.dualNetworkConnectionLost', { replace: { poolChainName: poolChainName, altChainName: altChainName } })
+              : t('ui.TRANSACTION.screen.Transaction.Earn.networkConnectionLost', { replace: { poolChainName: poolChainName } }),
             okButton: {
-              text: t('I understand'),
+              text: t('ui.TRANSACTION.screen.Transaction.Earn.iUnderstand'),
               onClick: closeAlert,
               icon: CheckCircle
             }
@@ -777,10 +1024,10 @@ const Component = () => {
   }, [form, inputAsset.slug]);
 
   useEffect(() => {
-    if (!fromValue && accountSelectorList.length === 1) {
-      form.setFieldValue('from', accountSelectorList[0].address);
+    if (!fromValue && accountAddressItems.length === 1) {
+      form.setFieldValue('from', accountAddressItems[0].address);
     }
-  }, [accountSelectorList, form, fromValue]);
+  }, [accountAddressItems, form, fromValue]);
 
   useEffect(() => {
     if (currentStep === 0) {
@@ -788,7 +1035,8 @@ const Component = () => {
         address: fromValue,
         amount: amountValue,
         slug: slug,
-        targets: poolTargetValue ? poolTargets : undefined
+        targets: poolTargetValue ? poolTargets : undefined,
+        netuid: netuid
       };
 
       const newData = JSON.stringify(submitData);
@@ -835,7 +1083,7 @@ const Component = () => {
         );
       }
     }
-  }, [submitString, currentStep, chainInfoMap, slug, fromValue, amountValue, notify, poolTargetValue, poolTargets]);
+  }, [submitString, currentStep, chainInfoMap, slug, fromValue, amountValue, notify, poolTargetValue, poolTargets, netuid]);
 
   // useEffect(() => {
   //   setCheckMintLoading(true);
@@ -964,17 +1212,16 @@ const Component = () => {
                 form={form}
                 initialValues={formDefault}
                 onFieldsChange={onFieldsChange}
-                onFinish={onSubmit}
+                onFinish={onClickSubmit}
               >
                 <HiddenInput fields={hideFields} />
 
                 <Form.Item
                   name={'from'}
                 >
-                  <AccountSelector
+                  <AccountAddressSelector
                     disabled={!isAllAccount}
-                    doFilter={false}
-                    externalAccounts={accountSelectorList}
+                    items={accountAddressItems}
                   />
                 </Form.Item>
 
@@ -982,7 +1229,7 @@ const Component = () => {
                   <FreeBalanceToEarn
                     address={fromValue}
                     hidden={submitStepType !== YieldStepType.XCM}
-                    label={`${t('Available balance')}:`}
+                    label={`${t('ui.TRANSACTION.screen.Transaction.Earn.availableBalance')}`}
                     onBalanceReady={setIsBalanceReady}
                     tokens={balanceTokens}
                   />
@@ -992,7 +1239,7 @@ const Component = () => {
                     chain={poolInfo.chain}
                     hidden={[YieldStepType.XCM].includes(submitStepType)}
                     isSubscribe={true}
-                    label={`${t('Available balance')}:`}
+                    label={`${t('ui.TRANSACTION.screen.Transaction.Earn.availableBalance')}:`}
                     tokenSlug={inputAsset.slug}
                   />
                 </div>
@@ -1026,7 +1273,7 @@ const Component = () => {
                       defaultValue={defaultData.target}
                       disabled={submitLoading}
                       from={fromValue}
-                      label={t('Pool')}
+                      label={t('ui.TRANSACTION.screen.Transaction.Earn.pool')}
                       loading={targetLoading}
                       setForceFetchValidator={setForceFetchValidator}
                       slug={slug}
@@ -1034,7 +1281,7 @@ const Component = () => {
                   </Form.Item>
                 )}
 
-                {poolType === YieldPoolType.NATIVE_STAKING && (
+                {(poolType === YieldPoolType.NATIVE_STAKING || poolType === YieldPoolType.SUBNET_STAKING) && (
                   <Form.Item
                     name={'target'}
                   >
@@ -1053,11 +1300,22 @@ const Component = () => {
               {renderMetaInfo()}
 
               <AlertBox
-                className={'__alert-box'}
+                className='__alert-box'
                 description={STAKE_ALERT_DATA.description.replace('{tokenAmount}', maintainString)}
                 title={STAKE_ALERT_DATA.title}
-                type={'warning'}
+                type='warning'
               />
+
+              {!isSlippageAcceptable && (
+                <div ref={alertBoxRef}>
+                  <AlertBox
+                    className='__alert-box'
+                    description={t('ui.TRANSACTION.screen.Transaction.Earn.stakeSlippageExceeded', { replace: { slippage: (earningSlippage * 100).toFixed(2) } })}
+                    title='Slippage too high!'
+                    type='error'
+                  />
+                </div>
+              )}
             </TransactionContent>
             <TransactionFooter>
               <Button
@@ -1071,7 +1329,7 @@ const Component = () => {
                 loading={submitLoading}
                 onClick={onPreCheck(form.submit, exType)}
               >
-                {t('Stake')}
+                {t('ui.TRANSACTION.screen.Transaction.Earn.stake')}
               </Button>
             </TransactionFooter>
           </>
@@ -1085,6 +1343,14 @@ const Component = () => {
         openAlert={openAlert}
         slug={slug}
       />
+      {isSlippageModalVisible && (
+        <SlippageModal
+          modalId={EARNING_SLIPPAGE_MODAL}
+          onApplySlippage={onSelectSlippage}
+          onCancel={closeSlippageModal}
+          slippageValue={maxSlippage}
+        />
+      )}
     </>
   );
 };
@@ -1138,6 +1404,44 @@ const Earn = styled(Wrapper)<Props>(({ theme: { token } }: Props) => {
 
     '.__alert-box': {
       marginTop: token.marginSM
+    },
+
+    // For subnet
+    '.__subnet-wrapper': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: token.sizeXS,
+      minWidth: 0
+    },
+
+    '.__subnet-rate': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.3rem'
+    },
+
+    '.__slippage-wrapper': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.25rem',
+      minWidth: 0
+    },
+
+    '.__slippage-editor-button': {
+      cursor: 'pointer'
+    },
+
+    // TODO: recheck with other UI
+    '.__max-slippage': {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.3rem'
+    },
+    '.__label-bottom, .__label-bottom *': {
+      color: `${token['gray-5']} !important`
+    },
+    '.__label-bottom, .__value': {
+      color: `${token['gray-5']} !important`
     }
   };
 });

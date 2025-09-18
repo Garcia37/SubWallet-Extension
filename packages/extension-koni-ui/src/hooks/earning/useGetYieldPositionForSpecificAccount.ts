@@ -2,44 +2,61 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { YieldPositionInfo } from '@subwallet/extension-base/types';
-import { isAccountAll, isSameAddress } from '@subwallet/extension-base/utils';
-import { useGetChainSlugsByAccountType, useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { isSameAddress } from '@subwallet/extension-base/utils';
+import { useGetChainAndExcludedTokenByCurrentAccountProxy, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import BigN from 'bignumber.js';
 import { useMemo } from 'react';
 
-const useGetYieldPositionForSpecificAccount = (_address?: string): YieldPositionInfo[] => {
+const useGetYieldPositionForSpecificAccount = (address?: string): YieldPositionInfo[] => {
   const poolInfoMap = useSelector((state) => state.earning.poolInfoMap);
   const yieldPositions = useSelector((state) => state.earning.yieldPositions);
-  const currentAccount = useSelector((state) => state.accountState.currentAccount);
-  const chainsByAccountType = useGetChainSlugsByAccountType();
+  const isAllAccount = useSelector((state) => state.accountState.isAllAccount);
+  const currentAccountProxy = useSelector((state) => state.accountState.currentAccountProxy);
+  const { allowedChains, excludedTokens } = useGetChainAndExcludedTokenByCurrentAccountProxy();
 
   return useMemo(() => {
     const infoSpecificList: YieldPositionInfo[] = [];
 
-    const address = _address || currentAccount?.address || '';
-    const isAll = isAccountAll(address);
-
     const checkAddress = (item: YieldPositionInfo) => {
-      if (isAll) {
+      if (isAllAccount) {
+        if (address) {
+          return isSameAddress(address, item.address);
+        }
+
         return true;
       } else {
-        return isSameAddress(address, item.address);
+        return currentAccountProxy?.accounts.some(({ address: _address }) => {
+          const compareAddress = address ? isSameAddress(address, _address) : true;
+
+          return compareAddress && isSameAddress(_address, item.address);
+        });
       }
     };
 
     for (const info of yieldPositions) {
-      if (chainsByAccountType.includes(info.chain) && poolInfoMap[info.slug]) {
-        const isValid = checkAddress(info);
-        const haveStake = new BigN(info.totalStake).gt(0);
+      if (!allowedChains.includes(info.chain) || excludedTokens.includes(info.balanceToken)) {
+        continue;
+      }
 
-        if (isValid && haveStake) {
-          infoSpecificList.push(info);
-        }
+      if (!poolInfoMap[info.slug]) {
+        continue;
+      }
+
+      const haveStake = new BigN(info.totalStake).gt(0);
+
+      if (!haveStake) {
+        continue;
+      }
+
+      const isValid = checkAddress(info);
+
+      if (isValid) {
+        infoSpecificList.push(info);
       }
     }
 
     return infoSpecificList;
-  }, [_address, chainsByAccountType, currentAccount?.address, poolInfoMap, yieldPositions]);
+  }, [address, allowedChains, currentAccountProxy?.accounts, excludedTokens, isAllAccount, poolInfoMap, yieldPositions]);
 };
 
 export default useGetYieldPositionForSpecificAccount;

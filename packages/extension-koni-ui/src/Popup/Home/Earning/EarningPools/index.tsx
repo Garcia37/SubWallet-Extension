@@ -14,7 +14,7 @@ import { useFilterModal, useGroupYieldPosition, useHandleChainConnection, useSel
 import { getBalanceValue } from '@subwallet/extension-koni-ui/hooks/screen/home/useAccountBalance';
 import { ChainConnectionWrapper } from '@subwallet/extension-koni-ui/Popup/Home/Earning/shared/ChainConnectionWrapper';
 import { EarningEntryParam, EarningEntryView, EarningPoolsParam, ThemeProps } from '@subwallet/extension-koni-ui/types';
-import { isAccountAll } from '@subwallet/extension-koni-ui/utils';
+import { getTransactionFromAccountProxyValue } from '@subwallet/extension-koni-ui/utils';
 import { Icon, ModalContext, SwList } from '@subwallet/react-ui';
 import BigN from 'bignumber.js';
 import CN from 'classnames';
@@ -44,7 +44,7 @@ function Component ({ poolGroup, symbol }: ComponentProps) {
 
   const chainInfoMap = useSelector((state) => state.chainStore.chainInfoMap);
   const assetRegistry = useSelector((state) => state.assetRegistry.assetRegistry);
-  const { currentAccount } = useSelector((state) => state.accountState);
+  const { currentAccountProxy } = useSelector((state) => state.accountState);
 
   const [, setEarnStorage] = useLocalStorage(EARN_TRANSACTION, DEFAULT_EARN_PARAMS);
   const yieldPositions = useGroupYieldPosition();
@@ -56,14 +56,15 @@ function Component ({ poolGroup, symbol }: ComponentProps) {
 
   const { filterSelectionMap, onApplyFilter, onChangeFilterOption, onCloseFilterModal, selectedFilters } = useFilterModal(FILTER_MODAL_ID);
 
-  const filterOptions = [
-    { label: t('Nomination pool'), value: YieldPoolType.NOMINATION_POOL },
-    { label: t('Direct nomination'), value: YieldPoolType.NATIVE_STAKING },
-    { label: t('Liquid staking'), value: YieldPoolType.LIQUID_STAKING },
-    { label: t('Lending'), value: YieldPoolType.LENDING },
-    { label: t('Parachain staking'), value: YieldPoolType.PARACHAIN_STAKING },
-    { label: t('Single farming'), value: YieldPoolType.SINGLE_FARMING }
-  ];
+  const filterOptions = useMemo(() => [
+    { label: t('ui.EARNING.screen.EarningPools.nominationPool'), value: YieldPoolType.NOMINATION_POOL },
+    { label: t('ui.EARNING.screen.EarningPools.directNomination'), value: YieldPoolType.NATIVE_STAKING },
+    { label: t('ui.EARNING.screen.EarningPools.liquidStaking'), value: YieldPoolType.LIQUID_STAKING },
+    { label: t('ui.EARNING.screen.EarningPools.lending'), value: YieldPoolType.LENDING },
+    { label: t('ui.EARNING.screen.EarningPools.parachainStaking'), value: YieldPoolType.PARACHAIN_STAKING },
+    { label: t('ui.EARNING.screen.EarningPools.singleFarming'), value: YieldPoolType.SINGLE_FARMING },
+    { label: t('ui.EARNING.screen.EarningPools.subnetStaking'), value: YieldPoolType.SUBNET_STAKING }
+  ], [t]);
 
   const positionSlugs = useMemo(() => {
     return yieldPositions.map((p) => p.slug);
@@ -155,6 +156,8 @@ function Component ({ poolGroup, symbol }: ComponentProps) {
           return true;
         } else if (filter === YieldPoolType.LENDING && item.type === YieldPoolType.LENDING) {
           return true;
+        } else if (filter === YieldPoolType.SUBNET_STAKING && item.type === YieldPoolType.SUBNET_STAKING) {
+          return true;
         }
         // Uncomment the following code block if needed
         // else if (filter === YieldPoolType.PARACHAIN_STAKING && item.type === YieldPoolType.PARACHAIN_STAKING) {
@@ -174,11 +177,11 @@ function Component ({ poolGroup, symbol }: ComponentProps) {
         ...DEFAULT_EARN_PARAMS,
         slug: item.slug,
         chain: item.chain,
-        from: currentAccount?.address ? isAccountAll(currentAccount.address) ? '' : currentAccount.address : ''
+        fromAccountProxy: getTransactionFromAccountProxyValue(currentAccountProxy)
       });
       navigate('/transaction/earn');
     },
-    [currentAccount?.address, navigate, setEarnStorage]
+    [currentAccountProxy, navigate, setEarnStorage]
   );
 
   const onConnectChainSuccess = useCallback(() => {
@@ -263,8 +266,8 @@ function Component ({ poolGroup, symbol }: ComponentProps) {
   const emptyList = useCallback(() => {
     return (
       <EmptyList
-        emptyMessage={t('Change your search and try again')}
-        emptyTitle={t('No earning option found')}
+        emptyMessage={t('ui.EARNING.screen.EarningPools.changeYourSearchAndTryAgain')}
+        emptyTitle={t('ui.EARNING.screen.EarningPools.noEarningOptionFound')}
         phosphorIcon={Vault}
       />
     );
@@ -314,7 +317,7 @@ function Component ({ poolGroup, symbol }: ComponentProps) {
         subHeaderBackground={'transparent'}
         subHeaderCenter={false}
         subHeaderPaddingVertical={true}
-        title={t<string>('{{symbol}} earning options', { replace: { symbol: symbol } })}
+        title={t('ui.EARNING.screen.EarningPools.symbolEarningOptions', { replace: { symbol: symbol } })}
       >
         <SwList.Section
           actionBtnIcon={<Icon phosphorIcon={FadersHorizontal} />}
@@ -327,18 +330,18 @@ function Component ({ poolGroup, symbol }: ComponentProps) {
           renderWhenEmpty={emptyList}
           searchFunction={searchFunction}
           searchMinCharactersCount={2}
-          searchPlaceholder={t<string>('Search token')}
+          searchPlaceholder={t<string>('ui.EARNING.screen.EarningPools.searchToken')}
           showActionBtn
         />
         <FilterModal
-          applyFilterButtonTitle={t('Apply filter')}
+          applyFilterButtonTitle={t('ui.EARNING.screen.EarningPools.applyFilter')}
           id={FILTER_MODAL_ID}
           onApplyFilter={onApplyFilter}
           onCancel={onCloseFilterModal}
           onChangeOption={onChangeFilterOption}
           optionSelectionMap={filterSelectionMap}
           options={filterOptions}
-          title={t('Filter')}
+          title={t('ui.EARNING.screen.EarningPools.filter')}
         />
       </Layout.Base>
     </ChainConnectionWrapper>

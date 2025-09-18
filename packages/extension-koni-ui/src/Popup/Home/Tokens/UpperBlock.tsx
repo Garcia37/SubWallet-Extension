@@ -11,12 +11,16 @@ import { ArrowsClockwise, ArrowsLeftRight, CopySimple, Eye, EyeSlash, PaperPlane
 import React, { useCallback, useState } from 'react';
 import styled from 'styled-components';
 
+import { ActionButtonsContainer } from './ActionButtonsContainer';
+
 type Props = ThemeProps & {
   totalValue: SwNumberProps['value'];
   totalChangeValue: SwNumberProps['value'];
   totalChangePercent: SwNumberProps['value'];
   isPriceDecrease: boolean;
   isShrink: boolean;
+  isSupportBuyTokens: boolean;
+  isSupportSwap: boolean;
   onOpenSendFund: () => void;
   onOpenBuyTokens: () => void;
   onOpenReceive: () => void;
@@ -27,6 +31,8 @@ function Component (
   { className = '',
     isPriceDecrease,
     isShrink,
+    isSupportBuyTokens,
+    isSupportSwap,
     onOpenBuyTokens,
     onOpenReceive,
     onOpenSendFund,
@@ -92,7 +98,7 @@ function Component (
             )}
             onClick={onChangeShowBalance}
             size='xs'
-            tooltip={isShowBalance ? t('Hide balance') : t('Show balance')}
+            tooltip={isShowBalance ? t('ui.BALANCE.screen.Tokens.UpperBlock.hideBalance') : t('ui.BALANCE.screen.Tokens.UpperBlock.showBalance')}
             type='ghost'
           />
           <Number
@@ -127,12 +133,12 @@ function Component (
             loading={reloading}
             onClick={reloadBalance}
             size='xs'
-            tooltip={t('Refresh balance')}
+            tooltip={t('ui.BALANCE.screen.Tokens.UpperBlock.refreshBalance')}
             type='ghost'
           />
         </div>
       )}
-      <div className={'__action-button-container'}>
+      <ActionButtonsContainer className={'__action-buttons-container'}>
         <Button
           icon={(
             <Icon
@@ -144,7 +150,7 @@ function Component (
           onClick={onOpenReceive}
           shape='squircle'
           size={isShrink ? 'xs' : 'sm'}
-          tooltip={t('Get address')}
+          tooltip={t('ui.BALANCE.screen.Tokens.UpperBlock.getAddress')}
         />
         <div className={'__button-space'} />
         <Button
@@ -158,10 +164,11 @@ function Component (
           onClick={onOpenSendFund}
           shape='squircle'
           size={isShrink ? 'xs' : 'sm'}
-          tooltip={t('Send tokens')}
+          tooltip={t('ui.BALANCE.screen.Tokens.UpperBlock.sendTokens')}
         />
         <div className={'__button-space'} />
         <Button
+          disabled={!isSupportSwap}
           icon={(
             <Icon
               phosphorIcon={ArrowsLeftRight}
@@ -172,11 +179,12 @@ function Component (
           onClick={onOpenSwap}
           shape='squircle'
           size={isShrink ? 'xs' : 'sm'}
-          tooltip={t('Swap')}
+          tooltip={t('ui.BALANCE.screen.Tokens.UpperBlock.swap')}
         />
         <div className={CN('__button-space', { hidden: isShrink })} />
         <Button
           className={CN({ hidden: isShrink })}
+          disabled={!isSupportBuyTokens}
           icon={
             <Icon
               phosphorIcon={ShoppingCartSimple}
@@ -187,9 +195,9 @@ function Component (
           onClick={onOpenBuyTokens}
           shape='squircle'
           size={isShrink ? 'xs' : 'sm'}
-          tooltip={t('Buy token')}
+          tooltip={t('ui.BALANCE.screen.Tokens.UpperBlock.buyToken')}
         />
-      </div>
+      </ActionButtonsContainer>
     </div>
   );
 }
@@ -259,10 +267,10 @@ export const UpperBlock = styled(Component)<Props>(({ theme: { token } }: Props)
       }
     },
 
-    '.__action-button-container': {
+    '.__action-buttons-container': {
       display: 'flex',
       justifyContent: 'center',
-      padding: '26px 8px 0 8px'
+      padding: '16px 8px 0 8px'
     },
 
     '.__button-space': {
@@ -331,7 +339,7 @@ export const UpperBlock = styled(Component)<Props>(({ theme: { token } }: Props)
         display: 'none'
       },
 
-      '.__action-button-container': {
+      '.__action-buttons-container': {
         paddingTop: 0
       },
 

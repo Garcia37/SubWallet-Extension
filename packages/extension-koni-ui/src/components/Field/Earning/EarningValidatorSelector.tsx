@@ -1,10 +1,11 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { ChainRecommendValidator } from '@subwallet/extension-base/constants';
 import { getValidatorLabel } from '@subwallet/extension-base/koni/api/staking/bonding/utils';
 import { _STAKING_CHAIN_GROUP } from '@subwallet/extension-base/services/earning-service/constants';
-import { YieldPoolType } from '@subwallet/extension-base/types';
-import { detectTranslate } from '@subwallet/extension-base/utils';
+import { NominationInfo, YieldPoolType } from '@subwallet/extension-base/types';
+import { detectTranslate, fetchStaticData } from '@subwallet/extension-base/utils';
 import { SelectValidatorInput, StakingValidatorItem } from '@subwallet/extension-koni-ui/components';
 import EmptyValidator from '@subwallet/extension-koni-ui/components/Account/EmptyValidator';
 import { BasicInputWrapper } from '@subwallet/extension-koni-ui/components/Field/Base';
@@ -28,6 +29,7 @@ interface Props extends ThemeProps, BasicInputWrapper {
   chain: string;
   from: string;
   slug: string;
+  originValidator?: string;
   onClickBookButton?: (e: SyntheticEvent) => void;
   onClickLightningButton?: (e: SyntheticEvent) => void;
   isSingleSelect?: boolean;
@@ -50,8 +52,6 @@ interface SortOption {
 
 const SORTING_MODAL_ID = 'nominated-sorting-modal';
 const FILTER_MODAL_ID = 'nominated-filter-modal';
-const AVAIL_CHAIN = 'avail_mainnet';
-const AVAIL_VALIDATOR = '5FjdibsxmNFas5HWcT2i1AXbpfgiNfWqezzo88H2tskxWdt2';
 
 const filterOptions = [
   {
@@ -78,7 +78,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
   const { chain, className = '', defaultValue, from
     , id = defaultModalId, isSingleSelect: _isSingleSelect = false,
     loading, onChange, setForceFetchValidator
-    , slug, value } = props;
+    , slug, value, originValidator, label } = props;
   const { t } = useTranslation();
   const { activeModal, checkActive } = useContext(ModalContext);
   const chainInfoMap = useSelector((state) => state.chainStore.chainInfoMap);
@@ -98,10 +98,14 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
   const poolInfo = poolInfoMap[slug];
   const maxCount = poolInfo?.statistic?.maxCandidatePerFarmer || 1;
 
-  const nominations = useMemo(() => compound?.nominations || [], [compound]);
+  // const cachedNominations = useMemo(() => compound?.nominations || [], [compound]);
+
+  const [nominations] = useState<NominationInfo[]>(compound?.nominations || []); // Remove set Nomination
   const isRelayChain = useMemo(() => _STAKING_CHAIN_GROUP.relay.includes(chain), [chain]);
   const isSingleSelect = useMemo(() => _isSingleSelect || !isRelayChain, [_isSingleSelect, isRelayChain]);
   const hasReturn = useMemo(() => items[0]?.expectedReturn !== undefined, [items]);
+
+  const [defaultPoolMap, setDefaultPoolMap] = useState<Record<string, ChainRecommendValidator>>({});
 
   const maxPoolMembersValue = useMemo(() => {
     if (poolInfo.type === YieldPoolType.NATIVE_STAKING) { // todo: should also check chain group for pool
@@ -115,7 +119,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     const result: SortOption[] = [
       {
         desc: false,
-        label: t('Lowest commission'),
+        label: t('ui.EARNING.components.Field.Earning.ValidatorSelector.lowestCommission'),
         value: SortKey.COMMISSION
       }
     ];
@@ -123,7 +127,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     if (hasReturn) {
       result.push({
         desc: true,
-        label: t('Highest annual return'),
+        label: t('ui.EARNING.components.Field.Earning.ValidatorSelector.highestAnnualReturn'),
         value: SortKey.RETURN
       });
     }
@@ -131,14 +135,14 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     if (nominations && nominations.length > 0) {
       result.push({
         desc: true,
-        label: t('Nomination'),
+        label: t('ui.EARNING.components.Field.Earning.ValidatorSelector.nomination'),
         value: SortKey.NOMINATING
       });
     }
 
     result.push({
       desc: false,
-      label: t('Lowest min active stake'),
+      label: t('ui.EARNING.components.Field.Earning.ValidatorSelector.lowestMinActiveStake'),
       value: SortKey.MIN_STAKE
     });
 
@@ -164,20 +168,20 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     if (!fewValidators) {
       switch (label) {
         case 'dApp':
-          return detectTranslate('Apply {{number}} dApp');
+          return detectTranslate('ui.EARNING.components.Field.Earning.ValidatorSelector.applyOneDapp');
         case 'Collator':
-          return detectTranslate('Apply {{number}} collator');
+          return detectTranslate('ui.EARNING.components.Field.Earning.ValidatorSelector.applyOneCollator');
         case 'Validator':
-          return detectTranslate('Apply {{number}} validator');
+          return detectTranslate('ui.EARNING.components.Field.Earning.ValidatorSelector.applyOneValidator');
       }
     } else {
       switch (label) {
         case 'dApp':
-          return detectTranslate('Apply {{number}} dApps');
+          return detectTranslate('ui.EARNING.components.Field.Earning.ValidatorSelector.applyNumberDapps');
         case 'Collator':
-          return detectTranslate('Apply {{number}} collators');
+          return detectTranslate('ui.EARNING.components.Field.Earning.ValidatorSelector.applyNumberCollators');
         case 'Validator':
-          return detectTranslate('Apply {{number}} validators');
+          return detectTranslate('ui.EARNING.components.Field.Earning.ValidatorSelector.applyNumberValidators');
       }
     }
   }, [chain, fewValidators]);
@@ -274,9 +278,15 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
   }, [handleValidatorLabel, items.length, setForceFetchValidator, t]);
 
   const renderItem = useCallback((item: ValidatorDataType) => {
+    if (item.address === originValidator) {
+      return null;
+    }
+
     const key = getValidatorKey(item.address, item.identity);
+    const keyBase = key.split('___')[0];
+
     const selected = changeValidators.includes(key);
-    const nominated = nominatorValueList.includes(key);
+    const nominated = nominatorValueList.includes(key) || nominatorValueList.some((nom) => nom.split('___')[0] === keyBase);
 
     return (
       <StakingValidatorItem
@@ -291,7 +301,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
         validatorInfo={item}
       />
     );
-  }, [changeValidators, networkPrefix, nominatorValueList, onClickItem, onClickMore]);
+  }, [changeValidators, networkPrefix, nominatorValueList, onClickItem, onClickMore, originValidator]);
 
   const onClickActionBtn = useCallback(() => {
     activeModal(FILTER_MODAL_ID);
@@ -312,13 +322,51 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     activeModal(id);
   }, [activeModal, id]);
 
+  // FIX BUG WHEN USE BITTENSOR API KEY
+
+  // useEffect(() => {
+  //   setNominations((old) => {
+  //     const sortNomination = (a: NominationInfo, b: NominationInfo) => {
+  //       if (a.validatorAddress > b.validatorAddress) {
+  //         return 1;
+  //       } else if (a.validatorAddress < b.validatorAddress) {
+  //         return -1;
+  //       }
+
+  //       return 0;
+  //     };
+
+  //     const oldSorted = old.sort(sortNomination).map((item) => getValidatorKey(item.validatorAddress, item.validatorIdentity)).join('---');
+  //     const newSorted = cachedNominations.sort(sortNomination).map((item) => getValidatorKey(item.validatorAddress, item.validatorIdentity)).join('---');
+
+  //     if (oldSorted !== newSorted) {
+  //       return cachedNominations;
+  //     }
+
+  //     return old;
+  //   });
+  // }, [cachedNominations]);
+
   useEffect(() => {
-    if (chain === AVAIL_CHAIN) {
+    fetchStaticData<Record<string, ChainRecommendValidator>>('direct-nomination-validator').then((earningPoolRecommendation) => {
+      setDefaultPoolMap(earningPoolRecommendation);
+    }).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    const recommendValidator = defaultPoolMap[chain];
+
+    if (recommendValidator) {
       setAutoValidator((old) => {
         if (old) {
           return old;
         } else {
-          const selectedValidator = autoSelectValidatorOptimally(items, 16, true, AVAIL_VALIDATOR);
+          const selectedValidator = autoSelectValidatorOptimally(
+            items,
+            recommendValidator.maxCount,
+            true,
+            recommendValidator.preSelectValidators
+          );
 
           return selectedValidator.map((item) => getValidatorKey(item.address, item.identity)).join(',');
         }
@@ -326,7 +374,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     } else {
       setAutoValidator('');
     }
-  }, [items, chain]);
+  }, [items, chain, defaultPoolMap]);
 
   useEffect(() => {
     const _default = nominations?.map((item) => getValidatorKey(item.validatorAddress, item.validatorIdentity)).join(',') || autoValidator || '';
@@ -336,7 +384,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
     onChange && onChange({ target: { value: selected } });
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nominations, onInitValidators, isSingleSelect, autoValidator]);
+  }, [nominations, onInitValidators, isSingleSelect, autoValidator, originValidator]);
 
   useEffect(() => {
     if (!isActive) {
@@ -358,7 +406,8 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
       <SelectValidatorInput
         chain={chain}
         disabled={!chain || !from}
-        label={t('Select') + ' ' + t(handleValidatorLabel)}
+        identPrefix={networkPrefix}
+        label={label || t('ui.EARNING.components.Field.Earning.ValidatorSelector.select') + ' ' + t(handleValidatorLabel)}
         loading={loading}
         onClick={onActiveValidatorSelector}
         value={value || ''}
@@ -390,7 +439,10 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
         onCancel={onCancelSelectValidator}
         rightIconProps={{
           icon: (
-            <Badge dot={sortSelection !== SortKey.DEFAULT}>
+            <Badge
+              className={'g-filter-badge'}
+              dot={sortSelection !== SortKey.DEFAULT}
+            >
               <Icon phosphorIcon={SortAscending} />
             </Badge>
           ),
@@ -398,7 +450,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
             activeModal(SORTING_MODAL_ID);
           }
         }}
-        title={t('Select') + ' ' + t(handleValidatorLabel)}
+        title={t('ui.EARNING.components.Field.Earning.ValidatorSelector.select') + ' ' + t(handleValidatorLabel)}
       >
         <SwList.Section
           actionBtnIcon={<Icon phosphorIcon={FadersHorizontal} />}
@@ -448,8 +500,13 @@ const EarningValidatorSelector = styled(forwardRef(Component))<Props>(({ theme: 
   return {
     '.ant-sw-modal-header': {
       paddingTop: token.paddingXS,
-      paddingBottom: token.paddingLG
+      paddingBottom: token.paddingSM
     },
+
+    '.ant-sw-list-search-input': {
+      paddingBottom: token.paddingSM
+    },
+
     '.__pool-item-wrapper': {
       marginBottom: token.marginXS
     },

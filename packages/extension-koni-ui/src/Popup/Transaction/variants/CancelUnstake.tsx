@@ -3,8 +3,7 @@
 
 import { _ChainInfo } from '@subwallet/chain-list/types';
 import { ExtrinsicType } from '@subwallet/extension-base/background/KoniTypes';
-import { AccountJson } from '@subwallet/extension-base/background/types';
-import { YieldPoolType, YieldPositionInfo } from '@subwallet/extension-base/types';
+import { AccountJson, YieldPoolType, YieldPositionInfo } from '@subwallet/extension-base/types';
 import { isSameAddress } from '@subwallet/extension-base/utils';
 import { AccountSelector, CancelUnstakeSelector, HiddenInput } from '@subwallet/extension-koni-ui/components';
 import { useHandleSubmitTransaction, useInitValidateTransaction, usePreCheckAction, useRestoreTransaction, useSelector, useTransactionContext, useWatchTransaction, useYieldPositionDetail } from '@subwallet/extension-koni-ui/hooks';
@@ -60,6 +59,7 @@ const Component = () => {
   const poolInfo = poolInfoMap[slug];
   const poolType = poolInfo.type;
   const poolChain = poolInfo.chain;
+  const networkPrefix = chainInfoMap[poolChain]?.substrateInfo?.addressPrefix;
 
   const fromValue = useWatchTransaction('from', form, defaultData);
   const chainValue = useWatchTransaction('chain', form, defaultData);
@@ -160,6 +160,7 @@ const Component = () => {
             name={'from'}
           >
             <AccountSelector
+              addressPrefix={networkPrefix}
               disabled={!isAllAccount}
               doFilter={false}
               externalAccounts={accountList}
@@ -169,7 +170,7 @@ const Component = () => {
             address={fromValue}
             chain={chainValue}
             className={'free-balance'}
-            label={t('Available balance:')}
+            label={t('ui.TRANSACTION.screen.Transaction.CancelUnstake.availableBalance')}
             onBalanceReady={setIsBalanceReady}
           />
           <Form.Item name={'unstake'}>
@@ -177,7 +178,7 @@ const Component = () => {
               chain={chainValue}
               defaultValue={persistUnstake}
               disabled={!fromValue}
-              label={t('Select an unstake request')}
+              label={t('ui.TRANSACTION.screen.Transaction.CancelUnstake.selectUnstakeRequest')}
               nominators={fromValue ? positionInfo?.unstakings || [] : []}
             />
           </Form.Item>
@@ -195,7 +196,7 @@ const Component = () => {
           onClick={goHome}
           schema={'secondary'}
         >
-          {t('Cancel')}
+          {t('ui.TRANSACTION.screen.Transaction.CancelUnstake.cancel')}
         </Button>
 
         <Button
@@ -209,7 +210,7 @@ const Component = () => {
           loading={loading}
           onClick={onPreCheck(form.submit, ExtrinsicType.STAKING_CANCEL_UNSTAKE)}
         >
-          {t('Approve')}
+          {t('ui.TRANSACTION.screen.Transaction.CancelUnstake.approve')}
         </Button>
       </TransactionFooter>
     </>

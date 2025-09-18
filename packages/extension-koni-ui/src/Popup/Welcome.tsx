@@ -3,8 +3,8 @@
 
 import { Layout } from '@subwallet/extension-koni-ui/components';
 import { GeneralTermModal } from '@subwallet/extension-koni-ui/components/Modal/TermsAndConditions/GeneralTermModal';
-import { ATTACH_ACCOUNT_MODAL, CONFIRM_GENERAL_TERM, CREATE_ACCOUNT_MODAL, DEFAULT_ACCOUNT_TYPES, GENERAL_TERM_AND_CONDITION_MODAL, IMPORT_ACCOUNT_MODAL, SELECT_ACCOUNT_MODAL } from '@subwallet/extension-koni-ui/constants';
-import { useSetSelectedAccountTypes, useTranslation } from '@subwallet/extension-koni-ui/hooks';
+import { ATTACH_ACCOUNT_MODAL, CONFIRM_GENERAL_TERM, CREATE_ACCOUNT_MODAL, DEFAULT_MNEMONIC_TYPE, GENERAL_TERM_AND_CONDITION_MODAL, IMPORT_ACCOUNT_MODAL, SELECT_ACCOUNT_MODAL } from '@subwallet/extension-koni-ui/constants';
+import { useSetSelectedMnemonicType, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { PhosphorIcon, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { Button, ButtonProps, Icon, Image, ModalContext } from '@subwallet/react-ui';
 import CN from 'classnames';
@@ -28,37 +28,37 @@ function Component ({ className }: Props): React.ReactElement<Props> {
   const { t } = useTranslation();
   const { activeModal, inactiveModal } = useContext(ModalContext);
   const navigate = useNavigate();
-  const setSelectedAccountTypes = useSetSelectedAccountTypes(false);
+  const setSelectedMnemonicType = useSetSelectedMnemonicType(false);
   const [modalIdAfterConfirm, setModalIdAfterConfirm] = useState('');
   const [_isConfirmedTermGeneral, setIsConfirmedTermGeneral] = useLocalStorage(CONFIRM_GENERAL_TERM, 'nonConfirmed');
   const items = useMemo((): WelcomeButtonItem[] => [
     {
-      description: t('Create a new account with SubWallet'),
+      description: t('ui.screen.Welcome.createNewAccountWithSubWallet'),
       icon: PlusCircle,
       id: CREATE_ACCOUNT_MODAL,
       schema: 'primary',
-      title: t('Create a new account')
+      title: t('ui.screen.Welcome.createNewAccount')
     },
     {
-      description: t('Import an existing account'),
+      description: t('ui.screen.Welcome.importExistingAccount'),
       icon: FileArrowDown,
       id: IMPORT_ACCOUNT_MODAL,
       schema: 'secondary',
-      title: t('Import an account')
+      title: t('ui.screen.Welcome.importAccount')
     },
     {
-      description: t('Attach an account without private key'),
+      description: t('ui.screen.Welcome.attachAccountWithoutPrivateKey'),
       icon: Swatches,
       id: ATTACH_ACCOUNT_MODAL,
       schema: 'secondary',
-      title: t('Attach an account')
+      title: t('ui.screen.Welcome.attachAccount')
     }
   ], [t]);
 
   const openModal = useCallback((id: string) => {
     return () => {
       if (id === CREATE_ACCOUNT_MODAL) {
-        setSelectedAccountTypes(DEFAULT_ACCOUNT_TYPES);
+        setSelectedMnemonicType(DEFAULT_MNEMONIC_TYPE);
         navigate('/accounts/new-seed-phrase');
       } else {
         inactiveModal(SELECT_ACCOUNT_MODAL);
@@ -67,7 +67,7 @@ function Component ({ className }: Props): React.ReactElement<Props> {
 
       setIsConfirmedTermGeneral('confirmed');
     };
-  }, [activeModal, inactiveModal, navigate, setIsConfirmedTermGeneral, setSelectedAccountTypes]);
+  }, [setSelectedMnemonicType, activeModal, inactiveModal, navigate, setIsConfirmedTermGeneral]);
 
   const onClickToSelectTypeConnect = useCallback((idModal: string) => {
     return () => {
@@ -95,7 +95,7 @@ function Component ({ className }: Props): React.ReactElement<Props> {
           />
         </div>
         <div className='sub-title'>
-          {t('Choose how you\'d like to set up your wallet')}
+          {t('ui.screen.Welcome.chooseWalletSetupMethod')}
         </div>
         <div className='buttons-container'>
           {
@@ -144,6 +144,10 @@ const Welcome = styled(Component)<Props>(({ theme: { token } }: Props) => {
       width: '100%',
       left: 0,
       top: 0
+    },
+
+    '.-side-panel-mode & .bg-image': {
+      backgroundSize: 'cover'
     },
 
     '.body-container': {

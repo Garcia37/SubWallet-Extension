@@ -8,13 +8,14 @@ import { YieldPoolInfo, YieldPoolType } from '@subwallet/extension-base/types';
 import { BN_ZERO } from '@subwallet/extension-base/utils';
 import { EmptyList, FilterModal, Layout } from '@subwallet/extension-koni-ui/components';
 import { EarningOptionItem } from '@subwallet/extension-koni-ui/components/Earning';
+import BannerGenerator from '@subwallet/extension-koni-ui/components/StaticContent/BannerGenerator';
 import { ASTAR_PORTAL_URL, DEFAULT_EARN_PARAMS, EARN_TRANSACTION } from '@subwallet/extension-koni-ui/constants';
 import { HomeContext } from '@subwallet/extension-koni-ui/contexts/screen/HomeContext';
-import { useFilterModal, useGroupYieldPosition, useHandleChainConnection, useSelector, useTranslation, useYieldGroupInfo } from '@subwallet/extension-koni-ui/hooks';
+import { useFilterModal, useGetBannerByScreen, useGroupYieldPosition, useHandleChainConnection, useSelector, useTranslation, useYieldGroupInfo } from '@subwallet/extension-koni-ui/hooks';
 import { getBalanceValue } from '@subwallet/extension-koni-ui/hooks/screen/home/useAccountBalance';
 import { ChainConnectionWrapper } from '@subwallet/extension-koni-ui/Popup/Home/Earning/shared/ChainConnectionWrapper';
 import { EarningEntryView, EarningPoolsParam, ThemeProps, YieldGroupInfo } from '@subwallet/extension-koni-ui/types';
-import { isAccountAll, isRelatedToAstar, openInNewTab } from '@subwallet/extension-koni-ui/utils';
+import { getTransactionFromAccountProxyValue, isRelatedToAstar, openInNewTab } from '@subwallet/extension-koni-ui/utils';
 import { Icon, ModalContext, SwList } from '@subwallet/react-ui';
 import CN from 'classnames';
 import { FadersHorizontal, Vault } from 'phosphor-react';
@@ -30,8 +31,10 @@ type Props = ThemeProps & {
 
 const groupOrdinal = (group: YieldGroupInfo): number => {
   if (group.group === 'DOT-Polkadot') {
-    return 2;
+    return 3;
   } else if (group.group === 'KSM-Kusama') {
+    return 2;
+  } else if (group.chain === 'bittensor') {
     return 1;
   } else {
     return 0;
@@ -61,6 +64,7 @@ enum FilterOptionType {
   TEST_NETWORK = 'TEST_NETWORK',
 }
 
+// Todo: Recheck the compatibility of earning types with each ecosystem instead of filtering by network type
 function Component ({ className, hasEarningPositions, setEntryView }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -69,9 +73,9 @@ function Component ({ className, hasEarningPositions, setEntryView }: Props) {
   const { poolInfoMap } = useSelector((state) => state.earning);
   const assetRegistry = useSelector((state) => state.assetRegistry.assetRegistry);
   const chainInfoMap = useSelector((state) => state.chainStore.chainInfoMap);
-  const { currentAccount } = useSelector((state) => state.accountState);
+  const { currentAccountProxy } = useSelector((state) => state.accountState);
   const { accountBalance: { tokenBalanceMap } } = useContext(HomeContext);
-
+  const { banners, dismissBanner, onClickBanner } = useGetBannerByScreen('earning');
   const isShowBalance = useSelector((state) => state.settings.isShowBalance);
 
   const [, setEarnStorage] = useLocalStorage(EARN_TRANSACTION, DEFAULT_EARN_PARAMS);
@@ -95,8 +99,8 @@ function Component ({ className, hasEarningPositions, setEntryView }: Props) {
   }, [data]);
 
   const filterOptions = useMemo(() => [
-    { label: t('Mainnet'), value: FilterOptionType.MAIN_NETWORK },
-    { label: t('Testnet'), value: FilterOptionType.TEST_NETWORK }
+    { label: t('ui.EARNING.screen.EarningOptions.mainnet'), value: FilterOptionType.MAIN_NETWORK },
+    { label: t('ui.EARNING.screen.EarningOptions.testnet'), value: FilterOptionType.TEST_NETWORK }
   ], [t]);
 
   const filterFunction = useMemo<(item: YieldGroupInfo) => boolean>(() => {
@@ -129,11 +133,11 @@ function Component ({ className, hasEarningPositions, setEntryView }: Props) {
         ...DEFAULT_EARN_PARAMS,
         slug,
         chain,
-        from: currentAccount?.address ? isAccountAll(currentAccount.address) ? '' : currentAccount.address : ''
+        fromAccountProxy: getTransactionFromAccountProxyValue(currentAccountProxy)
       });
       navigate('/transaction/earn');
     },
-    [currentAccount?.address, navigate, setEarnStorage]
+    [currentAccountProxy, navigate, setEarnStorage]
   );
 
   const onConnectChainSuccess = useCallback(() => {
@@ -174,15 +178,15 @@ function Component ({ className, hasEarningPositions, setEntryView }: Props) {
     return () => {
       if (isRelatedToAstar(item.group)) {
         openAlert({
-          title: t('Enter Astar portal'),
-          content: t('Navigate to Astar portal to view and manage your stake in Astar dApp staking v3'),
+          title: t('ui.EARNING.screen.EarningOptions.enterAstarPortal'),
+          content: t('ui.EARNING.screen.EarningOptions.navigateToAstarPortal'),
           cancelButton: {
-            text: t('Cancel'),
+            text: t('ui.EARNING.screen.EarningOptions.cancel'),
             schema: 'secondary',
             onClick: closeAlert
           },
           okButton: {
-            text: t('Enter Astar portal'),
+            text: t('ui.EARNING.screen.EarningOptions.enterAstarPortal'),
             onClick: () => {
               openInNewTab(ASTAR_PORTAL_URL)();
               closeAlert();
@@ -314,8 +318,8 @@ function Component ({ className, hasEarningPositions, setEntryView }: Props) {
   const emptyList = useCallback(() => {
     return (
       <EmptyList
-        emptyMessage={t('No earning option found')}
-        emptyTitle={t('Change your search and try again')}
+        emptyMessage={t('ui.EARNING.screen.EarningOptions.noEarningOptionFound')}
+        emptyTitle={t('ui.EARNING.screen.EarningOptions.changeYourSearchAndTryAgain')}
         phosphorIcon={Vault}
       />
     );
@@ -358,8 +362,17 @@ function Component ({ className, hasEarningPositions, setEntryView }: Props) {
         subHeaderBackground={'transparent'}
         subHeaderCenter={false}
         subHeaderPaddingVertical={true}
-        title={t<string>('Earning options')}
+        title={t<string>('ui.EARNING.screen.EarningOptions.earningOptions')}
       >
+        {!!banners.length && (
+          <div className={'earning-banner-wrapper'}>
+            <BannerGenerator
+              banners={banners}
+              dismissBanner={dismissBanner}
+              onClickBanner={onClickBanner}
+            />
+          </div>
+        )}
         <SwList.Section
           actionBtnIcon={<Icon phosphorIcon={FadersHorizontal} />}
           className={'__section-list-container'}
@@ -371,18 +384,18 @@ function Component ({ className, hasEarningPositions, setEntryView }: Props) {
           renderWhenEmpty={emptyList}
           searchFunction={searchFunction}
           searchMinCharactersCount={2}
-          searchPlaceholder={t<string>('Search token')}
+          searchPlaceholder={t<string>('ui.EARNING.screen.EarningOptions.searchToken')}
           showActionBtn
         />
         <FilterModal
-          applyFilterButtonTitle={t('Apply filter')}
+          applyFilterButtonTitle={t('ui.EARNING.screen.EarningOptions.applyFilter')}
           id={FILTER_MODAL_ID}
           onApplyFilter={onApplyFilter}
           onCancel={onCloseFilterModal}
           onChangeOption={onChangeFilterOption}
           optionSelectionMap={filterSelectionMap}
           options={filterOptions}
-          title={t('Filter')}
+          title={t('ui.EARNING.screen.EarningOptions.filter')}
         />
       </Layout.Base>
     </ChainConnectionWrapper>
@@ -403,6 +416,12 @@ const EarningOptions = styled(Component)<Props>(({ theme: { token } }: Props) =>
     '+ .earning-option-item': {
       marginTop: token.marginXS
     }
+  },
+
+  '.earning-banner-wrapper': {
+    paddingLeft: token.padding,
+    paddingRight: token.padding,
+    marginBottom: token.sizeXS
   }
 }));
 

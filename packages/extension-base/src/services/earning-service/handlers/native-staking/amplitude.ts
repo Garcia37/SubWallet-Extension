@@ -3,13 +3,13 @@
 
 import { _ChainInfo } from '@subwallet/chain-list/types';
 import { TransactionError } from '@subwallet/extension-base/background/errors/TransactionError';
-import { APIItemState, BasicTxErrorType, ExtrinsicType, NominationInfo, UnstakingInfo } from '@subwallet/extension-base/background/KoniTypes';
+import { APIItemState, ExtrinsicType, NominationInfo, UnstakingInfo } from '@subwallet/extension-base/background/KoniTypes';
 import { getBondedValidators, getEarningStatusByNominations, isUnstakeAll, KrestDelegateState } from '@subwallet/extension-base/koni/api/staking/bonding/utils';
 import { _STAKING_ERA_LENGTH_MAP } from '@subwallet/extension-base/services/chain-service/constants';
 import { _SubstrateApi } from '@subwallet/extension-base/services/chain-service/types';
 import { _STAKING_CHAIN_GROUP } from '@subwallet/extension-base/services/earning-service/constants';
 import { parseIdentity } from '@subwallet/extension-base/services/earning-service/utils';
-import { BaseYieldPositionInfo, EarningRewardItem, EarningStatus, NativeYieldPoolInfo, ParachainStakingStakeOption, StakeCancelWithdrawalParams, SubmitJoinNativeStaking, TransactionData, UnstakingStatus, ValidatorInfo, YieldPoolInfo, YieldPositionInfo, YieldStepBaseInfo, YieldStepType, YieldTokenBaseInfo } from '@subwallet/extension-base/types';
+import { BaseYieldPositionInfo, BasicTxErrorType, EarningRewardItem, EarningStatus, NativeYieldPoolInfo, ParachainStakingStakeOption, StakeCancelWithdrawalParams, SubmitJoinNativeStaking, TransactionData, UnstakingStatus, ValidatorInfo, YieldPoolInfo, YieldPositionInfo, YieldStepBaseInfo, YieldStepType, YieldTokenBaseInfo } from '@subwallet/extension-base/types';
 import { balanceFormatter, formatNumber, parseRawNumber, reformatAddress } from '@subwallet/extension-base/utils';
 
 import { SubmittableExtrinsic } from '@polkadot/api/types';
@@ -166,7 +166,8 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
     let unstakingBalance = '0';
 
     if (delegatorState) { // delegatorState can be null while unstaking all
-      const identityPromises = delegatorState.map((delegate) => parseIdentity(substrateApi, delegate.owner));
+      const substrateIdentityApi = this.substrateIdentityApi;
+      const identityPromises = delegatorState.map((delegate) => parseIdentity(substrateIdentityApi, delegate.owner));
       const identities = await Promise.all(identityPromises);
 
       for (let i = 0; i < delegatorState.length; i++) {
@@ -230,6 +231,8 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
     const totalBalance = new BN(activeStake).add(new BN(unstakingBalance));
     const stakingStatus = getEarningStatusByNominations(new BN(activeStake), nominationList);
 
+    await this.createWithdrawNotifications(unstakingList, this.nativeToken, address);
+
     return {
       status: stakingStatus,
       balanceToken: this.nativeToken.slug,
@@ -240,6 +243,46 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
       nominations: nominationList,
       unstakings: unstakingList
     };
+  }
+
+  async checkAccountHaveStake (useAddresses: string[]): Promise<string[]> {
+    const result: string[] = [];
+    const substrateApi = await this.substrateApi.isReady;
+    const ledgers = await substrateApi.api.query.parachainStaking?.delegatorState?.multi?.(useAddresses);
+    const _unstakingStates = await substrateApi.api.query.parachainStaking?.unstaking?.multi?.(useAddresses);
+
+    if (!ledgers || !_unstakingStates) {
+      return [];
+    }
+
+    for (let i = 0; i < useAddresses.length; i++) {
+      const owner = useAddresses[i];
+      const _delegatorState = ledgers[i];
+      let delegatorState: ParachainStakingStakeOption[] = [];
+      const unstakingInfo = _unstakingStates[i].toPrimitive() as unknown as Record<string, number>;
+
+      if (_STAKING_CHAIN_GROUP.krest_network.includes(this.chain)) {
+        const krestDelegatorState = _delegatorState.toPrimitive() as unknown as KrestDelegateState;
+
+        const delegates = krestDelegatorState?.delegations as unknown as ParachainStakingStakeOption[];
+
+        if (delegates) {
+          delegatorState = delegatorState.concat(delegates);
+        }
+      } else {
+        const delegate = _delegatorState.toPrimitive() as unknown as ParachainStakingStakeOption;
+
+        if (delegate) {
+          delegatorState.push(delegate);
+        }
+      }
+
+      if (delegatorState.length || (unstakingInfo && Object.keys(unstakingInfo).length)) {
+        result.push(owner);
+      }
+    }
+
+    return Promise.resolve(result);
   }
 
   async subscribePoolPosition (useAddresses: string[], resultCallback: (rs: YieldPositionInfo) => void): Promise<VoidFunction> {
@@ -324,7 +367,7 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
 
     await substrateApi.isReady;
 
-    if (!_STAKING_CHAIN_GROUP.kilt.includes(this.chain) && !_STAKING_CHAIN_GROUP.krest_network.includes(this.chain)) {
+    if (!_STAKING_CHAIN_GROUP.krest_network.includes(this.chain)) {
       await Promise.all(useAddresses.map(async (address) => {
         const _unclaimedReward = await substrateApi.api.query.parachainStaking.rewards(address);
 
@@ -332,13 +375,20 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
           return;
         }
 
-        callBack({
+        const earningRewardItem = {
           ...this.baseInfo,
           address: address,
           type: this.type,
           unclaimedReward: _unclaimedReward.toString(),
           state: APIItemState.READY
-        });
+        };
+
+        // TODO: Enable this when claim action is ready
+        // if (_unclaimedReward.toString() !== '0') {
+        //   await this.createClaimNotification(earningRewardItem, this.nativeToken);
+        // }
+
+        callBack(earningRewardItem);
       }));
     }
 
@@ -351,7 +401,7 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
 
   /* Get pool targets */
 
-  async getKrestPoolTargets (chainApi: _SubstrateApi): Promise<ValidatorInfo[]> {
+  async getKrestPoolTargets (chainApi: _SubstrateApi, chainIdentityApi: _SubstrateApi): Promise<ValidatorInfo[]> {
     const _allCollators = await chainApi.api.query.parachainStaking.candidatePool.entries();
     const minDelegatorStake = chainApi.api.consts.parachainStaking.minDelegatorStake.toString();
     const maxDelegatorsPerCollator = chainApi.api.consts.parachainStaking.maxDelegatorsPerCollator?.toString();
@@ -360,7 +410,7 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
       const collatorInfo = collator[1].toPrimitive() as unknown as CollatorInfo;
       const address = collatorInfo.id;
 
-      return parseIdentity(chainApi, address);
+      return parseIdentity(chainIdentityApi, address);
     });
     const identities = await Promise.all(identityPromises);
 
@@ -402,7 +452,7 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
     });
   }
 
-  async getOtherPoolTargets (chainApi: _SubstrateApi): Promise<ValidatorInfo[]> {
+  async getOtherPoolTargets (chainApi: _SubstrateApi, chainIdentityApi: _SubstrateApi): Promise<ValidatorInfo[]> {
     const [_allCollators, _inflationConfig] = await Promise.all([
       chainApi.api.query.parachainStaking.candidatePool.entries(),
       chainApi.api.query.parachainStaking.inflationConfig()
@@ -418,7 +468,7 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
       const collatorInfo = collator[1].toPrimitive() as unknown as CollatorInfo;
       const address = collatorInfo.id;
 
-      return parseIdentity(chainApi, address);
+      return parseIdentity(chainIdentityApi, address);
     });
     const identities = await Promise.all(identityPromises);
 
@@ -463,11 +513,12 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
 
   async getPoolTargets (): Promise<ValidatorInfo[]> {
     const chainApi = await this.substrateApi.isReady;
+    const chainIdentityApi = this.substrateIdentityApi;
 
     if (_STAKING_CHAIN_GROUP.krest_network.includes(this.chain)) {
-      return this.getKrestPoolTargets(chainApi);
+      return this.getKrestPoolTargets(chainApi, chainIdentityApi);
     } else {
-      return this.getOtherPoolTargets(chainApi);
+      return this.getOtherPoolTargets(chainApi, chainIdentityApi);
     }
   }
 
@@ -563,7 +614,7 @@ export default class AmplitudeNativeStakingPoolHandler extends BaseParaNativeSta
       extrinsic = chainApi.api.tx.parachainStaking.leaveDelegators();
     }
 
-    return [ExtrinsicType.STAKING_LEAVE_POOL, extrinsic];
+    return [ExtrinsicType.STAKING_UNBOND, extrinsic];
   }
 
   /* Leave pool action */

@@ -29,7 +29,8 @@ export default class EvmRequestHandler {
     evmSignatureRequest: {},
     evmSendTransactionRequest: {},
     evmWatchTransactionRequest: {},
-    errorConnectNetwork: {}
+    errorConnectNetwork: {},
+    submitApiRequest: {}
   });
 
   private readonly confirmationsPromiseMap: Record<string, { resolver: Resolver<any>, validator?: (rs: any) => Error | undefined }> = {};
@@ -78,7 +79,7 @@ export default class EvmRequestHandler {
     const duplicated = Object.values(confirmationType).find((c) => (c.url === url) && (c.payloadJson === payloadJson));
 
     if (duplicated) {
-      throw new EvmProviderError(EvmProviderErrorType.INVALID_PARAMS, t('Duplicate request'));
+      throw new EvmProviderError(EvmProviderErrorType.INVALID_PARAMS, t('bg.DAPP.services.service.request.EvmHandler.duplicateRequest'));
     }
 
     confirmationType[id] = {
@@ -106,6 +107,10 @@ export default class EvmRequestHandler {
       this.#requestService.popupOpen();
     }
 
+    if (options.isPassConfirmation) {
+      await this.completeConfirmation({ [type]: { id, url, isApproved: true, payload: '' } });
+    }
+
     this.#requestService.updateIconV2();
 
     return promise;
@@ -125,7 +130,7 @@ export default class EvmRequestHandler {
     const exists = confirmationType[id];
 
     if (!exists) {
-      throw new EvmProviderError(EvmProviderErrorType.INVALID_PARAMS, t('Request does not exist'));
+      throw new EvmProviderError(EvmProviderErrorType.INVALID_PARAMS, t('bg.DAPP.services.service.request.EvmHandler.requestDoesNotExist'));
     }
 
     const payloadJson = JSON.stringify(payload);
@@ -145,8 +150,7 @@ export default class EvmRequestHandler {
   }
 
   private async signMessage (confirmation: ConfirmationDefinitions['evmSignatureRequest'][0]): Promise<string> {
-    const { account, payload, type } = confirmation.payload;
-    const address = account.address;
+    const { address, payload, type } = confirmation.payload;
     const pair = keyring.getPair(address);
 
     if (pair.isLocked) {
@@ -160,9 +164,9 @@ export default class EvmRequestHandler {
       case 'eth_signTypedData_v1':
       case 'eth_signTypedData_v3':
       case 'eth_signTypedData_v4':
-        return await pair.evmSigner.signMessage(payload, type);
+        return await pair.evm.signMessage(payload, type);
       default:
-        throw new EvmProviderError(EvmProviderErrorType.INVALID_PARAMS, t('Unsupported action'));
+        throw new EvmProviderError(EvmProviderErrorType.INVALID_PARAMS, t('bg.DAPP.services.service.request.EvmHandler.unsupportedAction'));
     }
   }
 
@@ -230,7 +234,7 @@ export default class EvmRequestHandler {
       keyring.unlockPair(pair.address);
     }
 
-    return pair.evmSigner.signTransaction(tx);
+    return pair.evm.signTransaction(tx);
   }
 
   private async decorateResult<T extends ConfirmationType> (t: T, request: ConfirmationDefinitions[T][0], result: ConfirmationDefinitions[T][1]) {
@@ -239,6 +243,8 @@ export default class EvmRequestHandler {
         result.payload = await this.signMessage(request as ConfirmationDefinitions['evmSignatureRequest'][0]);
       } else if (t === 'evmSendTransactionRequest') {
         result.payload = await this.signTransaction(request as ConfirmationDefinitions['evmSendTransactionRequest'][0]);
+      } else if (t === 'submitApiRequest') {
+        return;
       }
 
       if (t === 'evmSignatureRequest' || t === 'evmSendTransactionRequest') {
@@ -263,8 +269,8 @@ export default class EvmRequestHandler {
       const confirmation = confirmations[type][id];
 
       if (!resolver || !confirmation) {
-        this.#logger.error(t('Unable to proceed. Please try again'), type, id);
-        throw new Error(t('Unable to proceed. Please try again'));
+        this.#logger.error(t('bg.DAPP.services.service.request.EvmHandler.unableToProceed'), type, id);
+        throw new Error(t('bg.DAPP.services.service.request.EvmHandler.unableToProceed'));
       }
 
       // Fill signature for some special type

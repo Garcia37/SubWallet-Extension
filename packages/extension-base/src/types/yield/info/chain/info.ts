@@ -54,6 +54,9 @@ export interface YieldPoolMethodInfo {
 
   /** Pool can claim reward */
   claimReward: boolean;
+
+  /** Pool can change validator */
+  changeValidator: boolean;
 }
 
 /**
@@ -115,6 +118,12 @@ export interface BaseYieldPoolMetadata {
   availableMethod: YieldPoolMethodInfo;
 
   /* Special info */
+  subnetData?: {
+    netuid: number;
+    subnetSymbol: string;
+  };
+
+  minValidate?: string; // Avoid logic bittensor change
 }
 
 /**
@@ -317,7 +326,7 @@ export interface NominationYieldPoolInfo extends AbstractYieldPoolInfo {
  * @prop {NormalYieldPoolStatistic} [statistic] - Pool's metadata
  * */
 export interface NativeYieldPoolInfo extends AbstractYieldPoolInfo {
-  type: YieldPoolType.NATIVE_STAKING;
+  type: YieldPoolType.NATIVE_STAKING | YieldPoolType.SUBNET_STAKING;
   metadata: NormalYieldPoolMetadata;
   statistic?: NormalYieldPoolStatistic;
   maxPoolMembers?: number;

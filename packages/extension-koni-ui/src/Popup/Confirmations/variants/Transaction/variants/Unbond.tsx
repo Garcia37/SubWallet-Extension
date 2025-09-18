@@ -1,7 +1,8 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { RequestBondingSubmit } from '@subwallet/extension-base/background/KoniTypes';
+import { RequestUnbondingSubmit } from '@subwallet/extension-base/background/KoniTypes';
+import { AlertBox } from '@subwallet/extension-koni-ui/components';
 import CommonTransactionInfo from '@subwallet/extension-koni-ui/components/Confirmation/CommonTransactionInfo';
 import MetaInfo from '@subwallet/extension-koni-ui/components/MetaInfo/MetaInfo';
 import useGetNativeTokenBasicInfo from '@subwallet/extension-koni-ui/hooks/common/useGetNativeTokenBasicInfo';
@@ -16,10 +17,11 @@ type Props = BaseTransactionConfirmationProps;
 
 const Component: React.FC<Props> = (props: Props) => {
   const { className, transaction } = props;
-  const data = transaction.data as RequestBondingSubmit;
-
+  const data = transaction.data as RequestUnbondingSubmit;
   const { t } = useTranslation();
   const { decimals, symbol } = useGetNativeTokenBasicInfo(transaction.chain);
+  const subnetSymbol = data.poolInfo?.metadata.subnetData?.subnetSymbol;
+  const stakingFee = data.stakingFee;
 
   return (
     <div className={CN(className)}>
@@ -33,24 +35,36 @@ const Component: React.FC<Props> = (props: Props) => {
       >
         <MetaInfo.Number
           decimals={decimals}
-          label={t('Unstake amount')}
-          suffix={symbol}
+          label={t('ui.TRANSACTION.Confirmations.Unbond.unstakeAmount')}
+          suffix={subnetSymbol || symbol}
           value={data.amount}
         />
 
         <MetaInfo.Number
           decimals={decimals}
-          label={t('Estimated fee')}
+          label={t('ui.TRANSACTION.Confirmations.Unbond.estimatedFee')}
           suffix={symbol}
           value={transaction.estimateFee?.value || 0}
         />
       </MetaInfo>
+      {!!stakingFee && (
+        <AlertBox
+          className={CN(className, 'alert-box')}
+          description={t('ui.TRANSACTION.Confirmations.Unbond.taoUnstakingFeeDeductedInfo', { replace: { fee: stakingFee } })}
+          title={t('ui.TRANSACTION.Confirmations.Unbond.taoUnstakingFee')}
+          type='info'
+        />
+      )}
     </div>
   );
 };
 
 const UnbondTransactionConfirmation = styled(Component)<Props>(({ theme: { token } }: Props) => {
-  return {};
+  return {
+    '&.alert-box': {
+      marginTop: token.marginSM
+    }
+  };
 });
 
 export default UnbondTransactionConfirmation;

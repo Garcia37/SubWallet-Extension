@@ -1,14 +1,13 @@
 // Copyright 2019-2022 @subwallet/extension-web-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { _getAssetSymbol } from '@subwallet/extension-base/services/chain-service/utils';
+import { getTokenPairFromStep } from '@subwallet/extension-base/services/swap-service/utils';
 import { CommonStepType } from '@subwallet/extension-base/types/service-base';
-import { SwapTxData } from '@subwallet/extension-base/types/swap';
+import { SwapProviderId, SwapTxData } from '@subwallet/extension-base/types/swap';
 import { AlertBox, MetaInfo } from '@subwallet/extension-koni-ui/components';
-import { SwapRoute, SwapTransactionBlock } from '@subwallet/extension-koni-ui/components/Swap';
+import { QuoteRateDisplay, SwapRoute, SwapTransactionBlock } from '@subwallet/extension-koni-ui/components/Swap';
 import { BN_TEN, BN_ZERO } from '@subwallet/extension-koni-ui/constants';
 import { useGetAccountByAddress, useGetChainPrefixBySlug, useSelector } from '@subwallet/extension-koni-ui/hooks';
-import { Number } from '@subwallet/react-ui';
 import BigN from 'bignumber.js';
 import CN from 'classnames';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -55,24 +54,6 @@ const Component: React.FC<Props> = (props: Props) => {
     return totalBalance;
   }, [assetRegistryMap, data.quote.feeInfo.feeComponent, priceMap]);
 
-  const renderRateConfirmInfo = () => {
-    return (
-      <div className={'__quote-rate-wrapper'}>
-        <Number
-          decimal={0}
-          suffix={_getAssetSymbol(fromAssetInfo)}
-          value={1}
-        />
-        <span>&nbsp;~&nbsp;</span>
-        <Number
-          decimal={0}
-          suffix={_getAssetSymbol(toAssetInfo)}
-          value={data.quote.rate}
-        />
-      </div>
-    );
-  };
-
   const isSwapXCM = useMemo(() => {
     return data.process.steps.some((item) => item.type === CommonStepType.XCM);
   }, [data.process.steps]);
@@ -80,6 +61,14 @@ const Component: React.FC<Props> = (props: Props) => {
   const getWaitingTime = useMemo(() => {
     return Math.ceil((data.quote.estimatedArrivalTime || 0) / 60);
   }, [data.quote.estimatedArrivalTime]);
+
+  const originSwapPair = useMemo(() => {
+    return getTokenPairFromStep(data.process.steps);
+  }, [data.process.steps]);
+
+  const isKyberProvider = useMemo(() => {
+    return data.provider.id === SwapProviderId.KYBER;
+  }, [data.provider.id]);
 
   useEffect(() => {
     let timer: NodeJS.Timer;
@@ -101,7 +90,10 @@ const Component: React.FC<Props> = (props: Props) => {
   return (
     <div className={CN(className)}>
       <SwapTransactionBlock
-        data={data}
+        fromAmount={data.quote.fromAmount}
+        fromAssetSlug={originSwapPair?.from}
+        toAmount={data.quote.toAmount}
+        toAssetSlug={originSwapPair?.to}
       />
       <MetaInfo
         className={'__swap-confirmation-wrapper'}
@@ -110,56 +102,69 @@ const Component: React.FC<Props> = (props: Props) => {
         <MetaInfo.Account
           address={recipientAddress}
           className={'__recipient-item'}
-          label={t('Recipient')}
+          label={t('ui.TRANSACTION.Confirmations.Swap.recipient')}
           name={account?.name}
           networkPrefix={networkPrefix}
         />
         <MetaInfo.Default
           className={'__quote-rate-confirm'}
-          label={t('Quote rate')}
+          label={t('ui.TRANSACTION.Confirmations.Swap.quoteRate')}
           valueColorSchema={'gray'}
         >
-          {renderRateConfirmInfo()}
+          <QuoteRateDisplay
+            className={'__quote-estimate-swap-value'}
+            fromAssetInfo={fromAssetInfo}
+            rateValue={data.quote.rate}
+            toAssetInfo={toAssetInfo}
+          />
         </MetaInfo.Default>
         <MetaInfo.Number
           className={'__estimate-transaction-fee'}
           decimals={0}
-          label={'Estimated fee'}
+          label={t('ui.TRANSACTION.Confirmations.Swap.estimatedFee')}
           prefix={(currencyData.isPrefix && currencyData.symbol) || ''}
           suffix={(!currencyData.isPrefix && currencyData.symbol) || ''}
           value={estimatedFeeValue}
         />
         <MetaInfo.Default
           className={'-d-column'}
-          label={t('Swap route')}
+          label={t('ui.TRANSACTION.Confirmations.Swap.swapRoute')}
         >
         </MetaInfo.Default>
         <SwapRoute swapRoute={data.quote.route} />
-        {!showQuoteExpired && getWaitingTime > 0 && <AlertBox
-          className={'__swap-arrival-time'}
-          description={t(`Swapping via ${data.provider.name} can take up to ${getWaitingTime} minutes. Make sure you review all information carefully before submitting.`)}
-          title={t('Pay attention!')}
+
+      </MetaInfo>
+      {!showQuoteExpired && getWaitingTime > 0 && <AlertBox
+        className={'__swap-arrival-time'}
+        description={t('ui.TRANSACTION.Confirmations.Swap.swapProviderWaitingTime', { replace: { provider: data.provider.name, getWaitingTime: getWaitingTime } })}
+        title={t('ui.TRANSACTION.Confirmations.Swap.payAttentionExclamation')}
+        type='warning'
+      />}
+      {!showQuoteExpired && isSwapXCM && (
+        <AlertBox
+          className={'__swap-quote-expired'}
+          description={t('ui.TRANSACTION.Confirmations.Swap.swapQuoteUpdated')}
+          title={t('ui.TRANSACTION.Confirmations.Swap.payAttentionExclamation')}
           type='warning'
-        />}
-        {!showQuoteExpired && isSwapXCM && (
-          <AlertBox
-            className={'__swap-quote-expired'}
-            description={t('The swap quote has been updated. Make sure to double-check all information before confirming the transaction.')}
-            title={t('Pay attention!')}
-            type='warning'
-          />
-        )}
-        {showQuoteExpired &&
+        />
+      )}
+      {isKyberProvider && (
+        <AlertBox
+          className={'__swap-quote-expired'}
+          description={t('ui.TRANSACTION.Confirmations.Swap.marketConditionsMayAffectAmount')}
+          title={t('ui.TRANSACTION.Confirmations.Swap.payAttentionExclamation')}
+          type='warning'
+        />
+      )}
+      {showQuoteExpired &&
           (
             <AlertBox
               className={'__swap-quote-expired'}
-              description={t('Swap quote expired. Cancel to get a new quote.')}
-              title={t('Pay attention!')}
+              description={t('ui.TRANSACTION.Confirmations.Swap.swapQuoteExpired')}
+              title={t('ui.TRANSACTION.Confirmations.Swap.payAttentionExclamation')}
               type='warning'
             />)
-        }
-
-      </MetaInfo>
+      }
     </div>
   );
 };

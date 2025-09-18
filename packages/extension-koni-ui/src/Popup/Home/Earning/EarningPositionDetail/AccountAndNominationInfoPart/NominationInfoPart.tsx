@@ -3,10 +3,10 @@
 
 import { _ChainAsset } from '@subwallet/chain-list/types';
 import { _STAKING_CHAIN_GROUP } from '@subwallet/extension-base/services/earning-service/constants';
-import { YieldPoolInfo, YieldPoolType, YieldPositionInfo } from '@subwallet/extension-base/types';
+import { SubnetYieldPositionInfo, YieldPoolInfo, YieldPoolType, YieldPositionInfo } from '@subwallet/extension-base/types';
 import { isAccountAll } from '@subwallet/extension-base/utils';
 import { Avatar, CollapsiblePanel, MetaInfo } from '@subwallet/extension-koni-ui/components';
-import { useTranslation } from '@subwallet/extension-koni-ui/hooks';
+import { useGetChainPrefixBySlug, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { toShort } from '@subwallet/extension-koni-ui/utils';
 import CN from 'classnames';
@@ -28,8 +28,9 @@ function Component ({ className, compound,
 
   const isRelayChain = useMemo(() => _STAKING_CHAIN_GROUP.relay.includes(poolInfo.chain), [poolInfo.chain]);
 
+  const networkPrefix = useGetChainPrefixBySlug(poolInfo.chain);
   const haveNomination = useMemo(() => {
-    return [YieldPoolType.NOMINATION_POOL, YieldPoolType.NATIVE_STAKING].includes(poolInfo.type);
+    return [YieldPoolType.NOMINATION_POOL, YieldPoolType.NATIVE_STAKING, YieldPoolType.SUBNET_STAKING].includes(poolInfo.type);
   }, [poolInfo.type]);
 
   const noNomination = useMemo(
@@ -41,10 +42,12 @@ function Component ({ className, compound,
     return null;
   }
 
+  const symbol = (compound as SubnetYieldPositionInfo).subnetData?.subnetSymbol || inputAsset?.symbol || '';
+
   return (
     <CollapsiblePanel
       className={CN(className)}
-      title={t('Nomination info')}
+      title={t('ui.EARNING.screen.EarningPositionDetail.NominationInfoPart.nominationInfo')}
     >
       <MetaInfo
         labelColorScheme='gray'
@@ -62,6 +65,7 @@ function Component ({ className, compound,
               label={(
                 <>
                   <Avatar
+                    identPrefix={networkPrefix}
                     size={24}
                     value={item.validatorAddress}
                   />
@@ -70,7 +74,7 @@ function Component ({ className, compound,
                   </div>
                 </>
               )}
-              suffix={inputAsset?.symbol}
+              suffix={symbol}
               value={item.activeStake}
               valueColorSchema='even-odd'
             />

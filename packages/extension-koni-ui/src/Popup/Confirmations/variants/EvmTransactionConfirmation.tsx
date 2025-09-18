@@ -30,8 +30,9 @@ const convertToBigN = (num: EvmSendTransactionRequest['value']): string | number
 };
 
 function Component ({ className, request, type }: Props) {
-  const { id, payload: { account, chainId, errors, to } } = request;
+  const { id, payload: { address, chainId, errors, to } } = request;
   const { t } = useTranslation();
+  const account = useGetAccountByAddress(address);
 
   const { transactionRequest } = useSelector((state: RootState) => state.requestState);
 
@@ -51,7 +52,7 @@ function Component ({ className, request, type }: Props) {
       <div className={CN('confirmation-content', className)}>
         <ConfirmationGeneralInfo request={request} />
         <div className='title'>
-          {t('Transaction request')}
+          {t('ui.TRANSACTION.Confirmations.EvmTransaction.transactionRequest')}
         </div>
         <MetaInfo>
           {
@@ -59,27 +60,28 @@ function Component ({ className, request, type }: Props) {
             (
               <MetaInfo.Number
                 decimals={chainInfo?.evmInfo?.decimals}
-                label={t('Amount')}
+                label={t('ui.TRANSACTION.Confirmations.EvmTransaction.amount')}
                 suffix={chainInfo?.evmInfo?.symbol}
                 value={amount}
               />
             )
           }
           <MetaInfo.Account
-            address={account.address}
-            label={t('From account')}
-            name={account.name}
+            address={address}
+            className={'account-info-item'}
+            label={t('ui.TRANSACTION.Confirmations.EvmTransaction.fromAccount')}
+            name={account?.name || ''}
           />
           {(recipientAddress || recipient?.address) && <MetaInfo.Account
             address={recipient?.address || recipientAddress || ''}
             className='to-account'
-            label={request.payload.isToContract ? t('To contract') : t('To account')}
+            label={request.payload.isToContract ? t('ui.TRANSACTION.Confirmations.EvmTransaction.toContract') : t('ui.TRANSACTION.Confirmations.EvmTransaction.toAccount')}
             name={recipient?.name}
           />}
           {request.payload.estimateGas &&
               <MetaInfo.Number
                 decimals={chainInfo?.evmInfo?.decimals}
-                label={t('Estimated gas')}
+                label={t('ui.TRANSACTION.Confirmations.EvmTransaction.estimatedGas')}
                 suffix={chainInfo?.evmInfo?.symbol}
                 value={request.payload.estimateGas || '0'}
               />}
@@ -87,8 +89,8 @@ function Component ({ className, request, type }: Props) {
         {!!transaction?.estimateFee?.tooHigh && (
           <AlertBox
             className='network-box'
-            description={t('Gas fees on {{networkName}} are high due to high demands, so gas estimates are less accurate.', { replace: { networkName: chainInfo?.name } })}
-            title={t('Pay attention!')}
+            description={t('ui.TRANSACTION.Confirmations.EvmTransaction.highGasFeeWarning', { replace: { networkName: chainInfo?.name } })}
+            title={t('ui.TRANSACTION.Confirmations.EvmTransaction.payAttentionExclamation')}
             type='warning'
           />
         )}
@@ -99,7 +101,7 @@ function Component ({ className, request, type }: Props) {
             size='xs'
             type='ghost'
           >
-            {t('View details')}
+            {t('ui.TRANSACTION.Confirmations.EvmTransaction.viewDetails')}
           </Button>
         </div>
         }
@@ -111,10 +113,11 @@ function Component ({ className, request, type }: Props) {
       />
       {(!errors || errors.length === 0) &&
         <BaseDetailModal
-          title={t('Transaction details')}
+          title={t('ui.TRANSACTION.Confirmations.EvmTransaction.transactionDetails')}
         >
           <EvmTransactionDetail
-            account={account}
+            accountName={account?.name}
+            address={address}
             request={request.payload}
           />
         </BaseDetailModal>
@@ -138,6 +141,12 @@ const EvmTransactionConfirmation = styled(Component)<Props>(({ theme: { token } 
 
   '.__label': {
     textAlign: 'left'
+  },
+
+  '.account-info-item, .to-account': {
+    '.__account-item-address': {
+      textAlign: 'right'
+    }
   }
 }));
 

@@ -3,15 +3,17 @@
 
 import { NominationInfo } from '@subwallet/extension-base/background/KoniTypes';
 import { getValidatorLabel } from '@subwallet/extension-base/koni/api/staking/bonding/utils';
+import { YieldPoolInfo } from '@subwallet/extension-base/types';
 import { StakingNominationItem } from '@subwallet/extension-koni-ui/components';
 import { Avatar } from '@subwallet/extension-koni-ui/components/Avatar';
 import { BasicInputWrapper } from '@subwallet/extension-koni-ui/components/Field/Base';
 import { useSelectModalInputHelper } from '@subwallet/extension-koni-ui/hooks/form/useSelectModalInputHelper';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { toShort } from '@subwallet/extension-koni-ui/utils';
-import { InputRef, SelectModal } from '@subwallet/react-ui';
+import { Icon, InputRef, SelectModal } from '@subwallet/react-ui';
 import BigN from 'bignumber.js';
 import CN from 'classnames';
+import { Book } from 'phosphor-react';
 import React, { ForwardedRef, forwardRef, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import styled from 'styled-components';
@@ -20,21 +22,17 @@ import { GeneralEmptyList } from '../EmptyList';
 
 interface Props extends ThemeProps, BasicInputWrapper {
   nominators: NominationInfo[];
-  chain: string
+  chain: string,
+  poolInfo: YieldPoolInfo
+  networkPrefix?: number;
+  isChangeValidator?: boolean
 }
 
 const renderEmpty = () => <GeneralEmptyList />;
 
-const renderItem = (item: NominationInfo, isSelected: boolean) => (
-  <StakingNominationItem
-    isSelected={isSelected}
-    nominationInfo={item}
-  />
-);
-
 // todo: update filter for this component, after updating filter for SelectModal
 const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
-  const { chain = '', className, defaultValue, disabled, id = 'nomination-selector', label, nominators, placeholder, statusHelp, value } = props;
+  const { chain = '', className, defaultValue, disabled, id = 'nomination-selector', isChangeValidator, label, networkPrefix, nominators, placeholder, poolInfo, statusHelp, value } = props;
 
   const filteredItems = useMemo(() => {
     return nominators.filter((item) => new BigN(item.activeStake).gt(0));
@@ -65,6 +63,20 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
       );
     },
     []
+  );
+
+  const renderItem = useCallback(
+    (item: NominationInfo, isSelected: boolean) => {
+      return (
+        <StakingNominationItem
+          isChangeValidator={isChangeValidator}
+          isSelected={isSelected}
+          nominationInfo={item}
+          poolInfo={poolInfo}
+        />
+      );
+    },
+    [isChangeValidator, poolInfo]
   );
 
   const handleValidatorLabel = useMemo(() => {
@@ -101,6 +113,7 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
         placeholder={placeholder || label}
         prefix={
           <Avatar
+            identPrefix={networkPrefix}
             size={20}
             value={value}
           />
@@ -113,7 +126,17 @@ const Component = (props: Props, ref: ForwardedRef<InputRef>) => {
         searchPlaceholder={t<string>(`Search ${handleValidatorLabel}`)}
         selected={value || ''}
         statusHelp={statusHelp}
-        title={t('Select') + ' ' + t(handleValidatorLabel) || placeholder || t('Select validator')}
+        suffix={
+          isChangeValidator
+            ? (
+              <Icon
+                phosphorIcon={Book}
+                size='sm'
+              />
+            )
+            : undefined
+        }
+        title={t('ui.EARNING.components.Field.NominationSelector.selectValidatorLabel', { replace: { validatorLabel: handleValidatorLabel } }) || placeholder || t('ui.EARNING.components.Field.NominationSelector.selectValidator')}
       />
     </>
   );
@@ -139,6 +162,10 @@ const NominationSelector = styled(forwardRef(Component))<Props>(({ theme: { toke
         color: token.colorTextLight4,
         paddingLeft: token.sizeXXS
       }
+    },
+
+    '.ant-sw-list-search-input': {
+      paddingBottom: token.paddingSM
     },
 
     '.ant-select-modal-input-wrapper': {

@@ -1,13 +1,12 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { canDerive } from '@subwallet/extension-base/utils';
+import { AccountActions } from '@subwallet/extension-base/types';
 import BackIcon from '@subwallet/extension-koni-ui/components/Icon/BackIcon';
 import CloseIcon from '@subwallet/extension-koni-ui/components/Icon/CloseIcon';
 import { SettingItemSelection } from '@subwallet/extension-koni-ui/components/Setting/SettingItemSelection';
-import { EVM_ACCOUNT_TYPE } from '@subwallet/extension-koni-ui/constants/account';
-import { CREATE_ACCOUNT_MODAL, DERIVE_ACCOUNT_MODAL, NEW_SEED_MODAL } from '@subwallet/extension-koni-ui/constants/modal';
-import { useSetSessionLatest } from '@subwallet/extension-koni-ui/hooks';
+import { CREATE_ACCOUNT_MODAL, DERIVE_ACCOUNT_LIST_MODAL } from '@subwallet/extension-koni-ui/constants/modal';
+import { useSetSelectedMnemonicType, useSetSessionLatest } from '@subwallet/extension-koni-ui/hooks';
 import useTranslation from '@subwallet/extension-koni-ui/hooks/common/useTranslation';
 import useClickOutSide from '@subwallet/extension-koni-ui/hooks/dom/useClickOutSide';
 import useGoBackSelectAccount from '@subwallet/extension-koni-ui/hooks/modal/useGoBackSelectAccount';
@@ -20,6 +19,7 @@ import CN from 'classnames';
 import { Leaf, ShareNetwork } from 'phosphor-react';
 import React, { useCallback, useContext, useMemo } from 'react';
 import { useSelector } from 'react-redux';
+import { useNavigate } from 'react-router-dom';
 import styled, { useTheme } from 'styled-components';
 
 type Props = ThemeProps;
@@ -40,16 +40,17 @@ const Component: React.FC<Props> = ({ className }: Props) => {
   const { activeModal, checkActive, inactiveModal } = useContext(ModalContext);
   const { setStateSelectAccount } = useSetSessionLatest();
   const { token } = useTheme() as Theme;
-  const { accounts } = useSelector((state: RootState) => state.accountState);
+  const { accountProxies } = useSelector((state: RootState) => state.accountState);
   const isActive = checkActive(modalId);
+  const navigate = useNavigate();
+  const setSelectedMnemonicType = useSetSelectedMnemonicType(false);
 
   const onBack = useGoBackSelectAccount(modalId);
 
   const disableDerive = useMemo(
-    () => !accounts
-      .filter(({ isExternal, isInjected }) => !isExternal && !isInjected)
-      .filter(({ isMasterAccount, type }) => canDerive(type) && (type !== EVM_ACCOUNT_TYPE || (isMasterAccount && type === EVM_ACCOUNT_TYPE))).length,
-    [accounts]
+    () => !accountProxies
+      .filter(({ accountActions }) => accountActions.includes(AccountActions.DERIVE)).length,
+    [accountProxies]
   );
 
   const onCancel = useCallback(() => {
@@ -77,10 +78,11 @@ const Component: React.FC<Props> = ({ className }: Props) => {
       disabled: false,
       icon: Leaf,
       key: 'new-seed-phrase',
-      label: t('Create with a new seed phrase'),
+      label: t('ui.ACCOUNT.components.Modal.Account.Create.createWithNewSeedPhrase'),
       onClick: () => {
         inactiveModal(modalId);
-        activeModal(NEW_SEED_MODAL);
+        setSelectedMnemonicType('general');
+        navigate('/accounts/new-seed-phrase');
       }
     },
     {
@@ -88,13 +90,13 @@ const Component: React.FC<Props> = ({ className }: Props) => {
       disabled: disableDerive,
       icon: ShareNetwork,
       key: 'derive-account',
-      label: t('Derive from an existing account'),
+      label: t('ui.ACCOUNT.components.Modal.Account.Create.deriveFromExistingAccount'),
       onClick: () => {
         inactiveModal(modalId);
-        activeModal(DERIVE_ACCOUNT_MODAL);
+        activeModal(DERIVE_ACCOUNT_LIST_MODAL);
       }
     }
-  ]), [activeModal, inactiveModal, disableDerive, t, token]);
+  ]), [token, t, disableDerive, inactiveModal, setSelectedMnemonicType, navigate, activeModal]);
 
   return (
     <SwModal
@@ -107,7 +109,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
         icon: <CloseIcon />,
         onClick: onCancel
       }}
-      title={t<string>('Create a new account')}
+      title={t<string>('ui.ACCOUNT.components.Modal.Account.Create.createNewAccount')}
     >
       <div className='items-container'>
         {items.map((item) => {

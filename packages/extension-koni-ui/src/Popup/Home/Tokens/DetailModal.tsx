@@ -1,23 +1,21 @@
 // Copyright 2019-2022 @polkadot/extension-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { _ChainAsset } from '@subwallet/chain-list/types';
 import { APIItemState } from '@subwallet/extension-base/background/KoniTypes';
-import { getExplorerLink } from '@subwallet/extension-base/services/transaction-service/utils';
-import { BalanceItem } from '@subwallet/extension-base/types';
-import { isSameAddress } from '@subwallet/extension-base/utils';
+import { _isChainBitcoinCompatible } from '@subwallet/extension-base/services/chain-service/utils';
 import { AccountTokenBalanceItem, EmptyList, RadioGroup } from '@subwallet/extension-koni-ui/components';
-import { useGetChainPrefixBySlug, useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { useSelector } from '@subwallet/extension-koni-ui/hooks';
 import useTranslation from '@subwallet/extension-koni-ui/hooks/common/useTranslation';
 import { RootState } from '@subwallet/extension-koni-ui/stores';
-import { ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { BalanceItemWithAddressType, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { TokenBalanceItemType } from '@subwallet/extension-koni-ui/types/balance';
-import { isAccountAll, reformatAddress } from '@subwallet/extension-koni-ui/utils';
-import { Button, Form, Icon, ModalContext, Number, SwModal } from '@subwallet/react-ui';
+import { getBitcoinAccountDetails, getBitcoinKeypairAttributes, isAccountAll } from '@subwallet/extension-koni-ui/utils';
+import { getKeypairTypeByAddress, isBitcoinAddress } from '@subwallet/keyring';
+import { Form, Icon, ModalContext, Number, SwModal } from '@subwallet/react-ui';
 import BigN from 'bignumber.js';
 import CN from 'classnames';
-import { ArrowCircleLeft, ArrowSquareOut, Coins } from 'phosphor-react';
-import React, { useCallback, useContext, useEffect, useMemo } from 'react';
+import { ArrowCircleLeft, Coins } from 'phosphor-react';
+import React, { useContext, useEffect, useMemo } from 'react';
 import styled from 'styled-components';
 
 type Props = ThemeProps & {
@@ -51,6 +49,7 @@ interface FormState {
   view: ViewValue
 }
 
+// todo: need to recheck account balance logic again
 function Component ({ className = '', currentTokenInfo, id, onCancel, tokenBalanceMap }: Props): React.ReactElement<Props> {
   const { t } = useTranslation();
 
@@ -58,118 +57,145 @@ function Component ({ className = '', currentTokenInfo, id, onCancel, tokenBalan
 
   const isActive = checkActive(id);
 
-  const { currentAccount, isAllAccount } = useSelector((state) => state.accountState);
-  const { assetRegistry } = useSelector((state) => state.assetRegistry);
+  const { accounts, currentAccountProxy, isAllAccount } = useSelector((state) => state.accountState);
   const { balanceMap } = useSelector((state) => state.balance);
   const chainInfoMap = useSelector((state: RootState) => state.chainStore.chainInfoMap);
-
   const [form] = Form.useForm<FormState>();
+  const viewValue = Form.useWatch('view', form);
 
-  const view = Form.useWatch('view', form);
-
-  const tokenInfo = useMemo((): _ChainAsset|undefined => currentTokenInfo && assetRegistry[currentTokenInfo?.slug], [assetRegistry, currentTokenInfo]);
-  const addressPrefix = useGetChainPrefixBySlug(tokenInfo?.originChain);
-  const reformatedAddress = useMemo(() => currentAccount?.address && reformatAddress(currentAccount?.address, addressPrefix), [currentAccount?.address, addressPrefix]);
-
-  const chainInfo = useMemo(() => {
-    if (tokenInfo?.originChain === undefined) {
-      return undefined;
-    }
-
-    return chainInfoMap[tokenInfo.originChain];
-  }, [chainInfoMap, tokenInfo?.originChain]);
-
-  const openBlockExplorer = useCallback(
-    (link: string) => {
-      return () => {
-        window.open(link, '_blank');
-      };
-    },
-    []
+  const balanceInfo = useMemo(
+    () => (currentTokenInfo ? tokenBalanceMap[currentTokenInfo.slug] : undefined),
+    [currentTokenInfo, tokenBalanceMap]
   );
 
+  const chainInfo = useMemo(
+    () => (balanceInfo?.chain ? chainInfoMap[balanceInfo.chain] : undefined),
+    [balanceInfo, chainInfoMap]
+  );
+
+  const isBitcoinChain = useMemo(() => {
+    if (!chainInfo) {
+      return false;
+    }
+
+    return _isChainBitcoinCompatible(chainInfo);
+  }, [chainInfo]);
+
+  const currentView = useMemo(() => {
+    if (isBitcoinChain) {
+      return ViewValue.DETAIL;
+    } else {
+      return viewValue;
+    }
+  }, [isBitcoinChain, viewValue]);
+
   const defaultValues = useMemo((): FormState => ({
-    view: ViewValue.OVERVIEW
-  }), []);
+    view: isBitcoinChain ? ViewValue.DETAIL : ViewValue.OVERVIEW
+  }), [isBitcoinChain]);
 
   const viewOptions = useMemo((): ViewOption[] => {
     return [
       {
-        label: t('Token Details'),
+        label: t('ui.BALANCE.screen.Tokens.DetailModal.tokenDetailsTitle'),
         value: ViewValue.OVERVIEW
       },
       {
-        label: t('Account Details'),
+        label: t('ui.BALANCE.screen.Tokens.DetailModal.accountDetailsTitle'),
         value: ViewValue.DETAIL
       }
     ];
   }, [t]);
 
-  const items = useMemo((): ItemType[] => {
+  const overviewItems = useMemo((): ItemType[] => {
     const symbol = currentTokenInfo?.symbol || '';
-    const balanceInfo = currentTokenInfo ? tokenBalanceMap[currentTokenInfo.slug] : undefined;
-
-    const result: ItemType[] = [];
-
-    result.push({
-      key: 'transferable',
+    const createItem = (key: string, label: string, value: BigN): ItemType => ({
+      key,
       symbol,
-      label: t('Transferable'),
-      value: balanceInfo ? balanceInfo.free.value : new BigN(0)
+      label,
+      value
     });
 
-    result.push({
-      key: 'locked',
-      symbol,
-      label: t('Locked'),
-      value: balanceInfo ? balanceInfo.locked.value : new BigN(0)
-    });
+    const transferableValue = balanceInfo?.free.value ?? new BigN(0);
+    const lockedValue = balanceInfo?.locked.value ?? new BigN(0);
 
-    return result;
-  }, [currentTokenInfo, t, tokenBalanceMap]);
+    return [
+      createItem('transferable', t('ui.BALANCE.screen.Tokens.DetailModal.transferable'), transferableValue),
+      createItem('locked', t('ui.BALANCE.screen.Tokens.DetailModal.locked'), lockedValue)
+    ];
+  }, [balanceInfo?.free.value, balanceInfo?.locked.value, currentTokenInfo?.symbol, t]);
 
-  const accountItems = useMemo((): BalanceItem[] => {
-    if (!currentTokenInfo?.slug) {
+  const detailItems = useMemo((): BalanceItemWithAddressType[] => {
+    if (!currentAccountProxy || !currentTokenInfo?.slug) {
       return [];
     }
 
-    const result: BalanceItem[] = [];
+    const result: BalanceItemWithAddressType[] = [];
 
-    const filterAddress = (address: string) => {
-      if (isAllAccount) {
-        return !isAccountAll(address);
-      } else {
-        return isSameAddress(address, currentAccount?.address || '');
+    for (const [accountId, info] of Object.entries(balanceMap)) {
+      // Check if account is valid
+      const isValidAccount = isAllAccount
+        ? !isAccountAll(accountId) && accounts.some((a) => a.address === accountId)
+        : currentAccountProxy.accounts.some((a) => a.address === accountId);
+
+      if (!isValidAccount) {
+        continue;
       }
-    };
 
-    for (const [address, info] of Object.entries(balanceMap)) {
-      if (filterAddress(address)) {
-        const item = info[currentTokenInfo.slug];
+      const item = info[currentTokenInfo.slug];
 
-        if (item && item.state === APIItemState.READY) {
-          result.push(item);
-        }
+      if (!item || item.state !== APIItemState.READY) {
+        continue;
       }
+
+      const totalBalance = new BigN(item.free).plus(BigN(item.locked));
+
+      // Check if balance is greater than 0
+      if (totalBalance.lte(0) && (!isBitcoinChain || isAllAccount)) {
+        continue;
+      }
+
+      // Extend item with addressTypeLabel if needed
+      const resultItem: BalanceItemWithAddressType = { ...item };
+
+      if (isBitcoinAddress(item.address)) {
+        const keyPairType = getKeypairTypeByAddress(item.address);
+
+        const attributes = getBitcoinKeypairAttributes(keyPairType);
+
+        resultItem.addressTypeLabel = attributes.label;
+        resultItem.schema = attributes.schema;
+      }
+
+      result.push(resultItem);
     }
 
-    return result.sort((a, b) => {
-      const aTotal = new BigN(a.free).plus(BigN(a.locked));
-      const bTotal = new BigN(b.free).plus(BigN(b.locked));
+    // Sort by total balance in descending order
+    return result
+      .sort((a, b) => {
+        const _isABitcoin = isBitcoinAddress(a.address);
+        const _isBBitcoin = isBitcoinAddress(b.address);
 
-      return bTotal.minus(aTotal).toNumber();
-    });
-  }, [balanceMap, currentAccount?.address, currentTokenInfo?.slug, isAllAccount]);
+        if (_isABitcoin && _isBBitcoin) {
+          const aKeyPairType = getKeypairTypeByAddress(a.address);
+          const bKeyPairType = getKeypairTypeByAddress(b.address);
+
+          const aDetails = getBitcoinAccountDetails(aKeyPairType);
+          const bDetails = getBitcoinAccountDetails(bKeyPairType);
+
+          return aDetails.order - bDetails.order;
+        }
+
+        return 0;
+      })
+      .sort((a, b) => {
+        const aTotal = new BigN(a.free).plus(BigN(a.locked));
+        const bTotal = new BigN(b.free).plus(BigN(b.locked));
+
+        return bTotal.minus(aTotal).toNumber();
+      });
+  }, [accounts, balanceMap, currentAccountProxy, currentTokenInfo?.slug, isAllAccount, isBitcoinChain]);
 
   const symbol = currentTokenInfo?.symbol || '';
-
-  const filteredItems = useMemo(() => {
-    return accountItems.filter((item) => {
-      return new BigN(item.free).plus(item.locked).gt(0);
-    });
-  }, [accountItems]);
-
-  const link = (chainInfo !== undefined && reformatedAddress) && getExplorerLink(chainInfo, reformatedAddress, 'account');
 
   useEffect(() => {
     if (!isActive) {
@@ -182,7 +208,7 @@ function Component ({ className = '', currentTokenInfo, id, onCancel, tokenBalan
       className={CN(className, { 'fix-height': isAllAccount })}
       id={id}
       onCancel={onCancel}
-      title={t('Token details')}
+      title={(isAllAccount && isBitcoinChain) ? t('ui.BALANCE.screen.Tokens.DetailModal.accountDetailsTitle') : t('ui.BALANCE.screen.Tokens.DetailModal.tokenDetails')}
     >
       <Form
         form={form}
@@ -190,7 +216,7 @@ function Component ({ className = '', currentTokenInfo, id, onCancel, tokenBalan
         name='token-detail-form'
       >
         <Form.Item
-          hidden={!isAllAccount}
+          hidden={!isAllAccount || isBitcoinChain}
           name='view'
         >
           <RadioGroup
@@ -201,10 +227,10 @@ function Component ({ className = '', currentTokenInfo, id, onCancel, tokenBalan
       </Form>
       <div className='content-container'>
         {
-          view === ViewValue.OVERVIEW && (
+          currentView === ViewValue.OVERVIEW && (
             <>
               <div className={'__container'}>
-                {items.map((item) => (
+                {overviewItems.map((item) => (
                   <div
                     className={'__row'}
                     key={item.key}
@@ -224,30 +250,14 @@ function Component ({ className = '', currentTokenInfo, id, onCancel, tokenBalan
                   </div>
                 ))}
               </div>
-              {!isAllAccount && <div className={'__explorer-link'}>
-                {!!link && (
-                  <Button
-                    block
-                    disabled={!link}
-                    icon={
-                      <Icon
-                        phosphorIcon={ArrowSquareOut}
-                      />
-                    }
-                    onClick={openBlockExplorer(link)}
-                  >
-                    {t('View on explorer')}
-                  </Button>
-                )}
-              </div>}
             </>
           )
         }
         {
-          view === ViewValue.DETAIL && (
+          currentView === ViewValue.DETAIL && (
             <>
-              {filteredItems.length
-                ? (filteredItems.map((item) => (
+              {detailItems.length
+                ? (detailItems.map((item) => (
                   <AccountTokenBalanceItem
                     item={item}
                     key={item.address}
@@ -264,11 +274,11 @@ function Component ({ className = '', currentTokenInfo, id, onCancel, tokenBalan
                         onClick: onCancel,
                         size: 'xs',
                         shape: 'circle',
-                        children: t('Back to home')
+                        children: t('ui.BALANCE.screen.Tokens.DetailModal.backToHome')
                       }}
                       className='__empty-list'
-                      emptyMessage={t('Switch to another token to see account balance')}
-                      emptyTitle={t('No account with {{symbol}} balance found', {
+                      emptyMessage={t('ui.BALANCE.screen.Tokens.DetailModal.switchTokenToSeeBalance')}
+                      emptyTitle={t('ui.BALANCE.screen.Tokens.DetailModal.noAccountWithSymbolBalance', {
                         replace: {
                           symbol: symbol
                         }

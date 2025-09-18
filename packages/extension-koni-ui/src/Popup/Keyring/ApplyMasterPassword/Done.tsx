@@ -1,7 +1,7 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccountJson } from '@subwallet/extension-base/background/types';
+import { AccountJson } from '@subwallet/extension-base/types';
 import { detectTranslate } from '@subwallet/extension-base/utils';
 import AccountItemWithName from '@subwallet/extension-koni-ui/components/Account/Item/AccountItemWithName';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
@@ -33,10 +33,10 @@ const Component: React.FC<Props> = (props: Props) => {
         />
       </div>
       <div className='title'>
-        {t('All done!')}
+        {t('ui.ACCOUNT.screen.Keyring.ApplyMasterPassword.Done.allDone')}
       </div>
       <div className='description'>
-        {t('You have successfully updated master password to all accounts')}
+        {t('ui.ACCOUNT.screen.Keyring.ApplyMasterPassword.Done.masterPasswordUpdatedForAllAccounts')}
       </div>
       <div className='account-container'>
         {accounts.slice(0, 2).map((account) => (
@@ -54,7 +54,7 @@ const Component: React.FC<Props> = (props: Props) => {
             <div className='and-more'>
               <Trans
                 components={{ highlight: <span className='highlight' /> }}
-                i18nKey={detectTranslate('And other <highlight>{{number}}</highlight> accounts')}
+                i18nKey={detectTranslate('ui.ACCOUNT.screen.Keyring.ApplyMasterPassword.Done.andOtherNumberAccounts')}
                 values={{ number: String(accounts.length - 2).padStart(2, '0') }}
               />
             </div>

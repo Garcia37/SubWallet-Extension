@@ -3,7 +3,7 @@
 
 import { CONFIRM_TERM_SEED_PHRASE, TERM_AND_CONDITION_SEED_PHRASE_MODAL } from '@subwallet/extension-koni-ui/constants';
 import useTranslation from '@subwallet/extension-koni-ui/hooks/common/useTranslation';
-import { Theme, ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { SeedPhraseTermStorage, Theme, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { Button, Checkbox, Icon, ModalContext, SwList, SwModal, Web3Block } from '@subwallet/react-ui';
 import { CheckboxChangeEvent } from '@subwallet/react-ui/es/checkbox';
 import CN from 'classnames';
@@ -12,9 +12,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import styled, { useTheme } from 'styled-components';
 import { useLocalStorage } from 'usehooks-ts';
 
-interface Props extends ThemeProps {
-  onOk?: () => void
-}
+type Props = ThemeProps
 
 const modalId = TERM_AND_CONDITION_SEED_PHRASE_MODAL;
 
@@ -31,11 +29,12 @@ const valueStateTermDefault: Record<TermSeedPhrase, boolean> = {
   [TermSeedPhrase.TERM_3]: false,
   [TermSeedPhrase.TERM_4]: false
 };
+const SeedPhraseTermLocalDefault: SeedPhraseTermStorage = { state: 'nonConfirmed', useDefaultContent: false };
 
 const Component = ({ className }: Props) => {
   const { inactiveModal } = useContext(ModalContext);
   const { t } = useTranslation();
-  const [, setIsConfirmTermSeedPhrase] = useLocalStorage(CONFIRM_TERM_SEED_PHRASE, 'nonConfirmed');
+  const [{ useDefaultContent }, setConfirmTermSeedPhrase] = useLocalStorage<SeedPhraseTermStorage>(CONFIRM_TERM_SEED_PHRASE, SeedPhraseTermLocalDefault);
   const [isCheckDontShow, setIsCheckDontShow] = useState(false);
   const [isChecked, setIsChecked] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -43,10 +42,10 @@ const Component = ({ className }: Props) => {
   const { token } = useTheme() as Theme;
 
   const ListTermSeedPhrase: Record<TermSeedPhrase, string> = useMemo(() => ({
-    [TermSeedPhrase.TERM_1]: t('SubWallet doesn\'t keep any copy of your seed phrase and other backup methods such as JSON file or private key.'),
-    [TermSeedPhrase.TERM_2]: t('SubWallet can\'t help you recover your account once your seed phrase, JSON file or private key is lost.'),
-    [TermSeedPhrase.TERM_3]: t('You must write down your seed phrase in the correct order. It is recommended that you store it in a secure offline location.'),
-    [TermSeedPhrase.TERM_4]: t('You are NOT recommended to download and store your seed phrase in a digital device.')
+    [TermSeedPhrase.TERM_1]: t('ui.TERM.components.Modal.Terms.SeedPhrase.subwalletDoesNotKeepSeed'),
+    [TermSeedPhrase.TERM_2]: t('ui.TERM.components.Modal.Terms.SeedPhrase.subwalletCannotRecoverAccount'),
+    [TermSeedPhrase.TERM_3]: t('ui.TERM.components.Modal.Terms.SeedPhrase.writeSeedPhraseInOrder'),
+    [TermSeedPhrase.TERM_4]: t('ui.TERM.components.Modal.Terms.SeedPhrase.doNotStoreSeedDigitally')
   }), [t]);
 
   const ListTermItem: TermSeedPhrase[] = useMemo(() => [TermSeedPhrase.TERM_1, TermSeedPhrase.TERM_2, TermSeedPhrase.TERM_3, TermSeedPhrase.TERM_4], []);
@@ -82,6 +81,7 @@ const Component = ({ className }: Props) => {
     return (
       <Web3Block
         className={'term-box'}
+        key={term}
         leftItem={_leftItem}
         middleItem={_middleItem}
         onClick={onCheckedTerm(term)}
@@ -95,22 +95,28 @@ const Component = ({ className }: Props) => {
 
   const onConfirm = useCallback(() => {
     inactiveModal(modalId);
-    setIsConfirmTermSeedPhrase(isCheckDontShow ? 'confirmed' : 'nonConfirmed');
-  }, [inactiveModal, isCheckDontShow, setIsConfirmTermSeedPhrase]);
+    setConfirmTermSeedPhrase({ state: isCheckDontShow ? 'confirmed' : 'nonConfirmed', useDefaultContent: false });
+  }, [inactiveModal, isCheckDontShow, setConfirmTermSeedPhrase]);
+
+  const subTitle = useMemo(() => {
+    return useDefaultContent
+      ? t('ui.TERM.components.Modal.Terms.SeedPhrase.confirmSeedPhraseImportance')
+      : t('ui.TERM.components.Modal.Terms.SeedPhrase.seedPhraseAccount');
+  }, [useDefaultContent, t]);
 
   return (
     <SwModal
       className={CN(className)}
       closable={false}
       id={modalId}
-      title={t('Keep your seed phrase safe')}
+      title={t('ui.TERM.components.Modal.Terms.SeedPhrase.keepYourSeedPhraseSafe')}
     >
       <div
         className={'term-body'}
         ref={scrollRef}
       >
         <div className={'annotation'}>
-          {t('Tap on all checkboxes to confirm you understand the importance of your seed phrase')}
+          {subTitle}
         </div>
         <SwList
           className={'term-list'}
@@ -123,7 +129,7 @@ const Component = ({ className }: Props) => {
           checked={isCheckDontShow}
           className={'term-footer-checkbox'}
           onChange={onCheckedInput}
-        >{t('Don’t show again')}</Checkbox>
+        >{t('ui.TERM.components.Modal.Terms.SeedPhrase.dontShowAgain')}</Checkbox>
         <Button
           block={true}
           className={'term-footer-button'}
@@ -136,7 +142,7 @@ const Component = ({ className }: Props) => {
           )}
           onClick={onConfirm}
         >
-          {t('Continue')}
+          {t('ui.TERM.components.Modal.Terms.SeedPhrase.continue')}
         </Button>
       </div>
     </SwModal>
@@ -165,6 +171,7 @@ export const SeedPhraseTermModal = styled(Component)<Props>(({ theme: { token } 
 
     '.annotation': {
       fontSize: token.fontSizeSM,
+      lineHeight: token.lineHeightSM,
       color: token.colorTextLight5,
       textAlign: 'center'
     },

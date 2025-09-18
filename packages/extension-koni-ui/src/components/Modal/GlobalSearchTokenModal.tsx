@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { TokenBalanceSelectionItem, TokenEmptyList } from '@subwallet/extension-koni-ui/components';
+import Search from '@subwallet/extension-koni-ui/components/Search';
 import { useSelector, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { useChainAssets } from '@subwallet/extension-koni-ui/hooks/assets';
+import { RootState } from '@subwallet/extension-koni-ui/stores';
 import { AccountBalanceHookType, ThemeProps, TokenBalanceItemType, TokenGroupHookType } from '@subwallet/extension-koni-ui/types';
-import { sortTokenByValue } from '@subwallet/extension-koni-ui/utils';
+import { sortTokensByBalanceInSelector } from '@subwallet/extension-koni-ui/utils';
 import { SwList, SwModal } from '@subwallet/react-ui';
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 
@@ -15,15 +17,15 @@ type Props = ThemeProps & {
   id: string,
   onCancel: () => void,
   tokenBalanceMap: AccountBalanceHookType['tokenBalanceMap'],
-  sortedTokenSlugs: TokenGroupHookType['sortedTokenSlugs'],
+  tokenSlugs: TokenGroupHookType['tokenSlugs'],
 }
 
 function getTokenBalances (
   tokenBalanceMap: AccountBalanceHookType['tokenBalanceMap'],
-  sortedTokenSlugs: TokenGroupHookType['sortedTokenSlugs']): TokenBalanceItemType[] {
+  tokenSlugs: TokenGroupHookType['tokenSlugs']): TokenBalanceItemType[] {
   const result: TokenBalanceItemType[] = [];
 
-  sortedTokenSlugs.forEach((tokenSlug) => {
+  tokenSlugs.forEach((tokenSlug) => {
     if (tokenBalanceMap[tokenSlug]) {
       result.push(tokenBalanceMap[tokenSlug]);
     }
@@ -32,17 +34,23 @@ function getTokenBalances (
   return result;
 }
 
-function Component ({ className = '', id, onCancel, sortedTokenSlugs, tokenBalanceMap }: Props): React.ReactElement<Props> {
+function Component ({ className = '', id, onCancel, tokenBalanceMap, tokenSlugs }: Props): React.ReactElement<Props> {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
   const { chainInfoMap } = useSelector((state) => state.chainStore);
   const { multiChainAssetMap } = useSelector((state) => state.assetRegistry);
   const assetRegistry = useChainAssets({ isActive: true }).chainAssetRegistry;
+  const priorityTokens = useSelector((state: RootState) => state.chainStore.priorityTokens);
+  const [currentSearchText, setCurrentSearchText] = useState<string>('');
 
   const tokenBalances = useMemo<TokenBalanceItemType[]>(() => {
-    return getTokenBalances(tokenBalanceMap, sortedTokenSlugs).sort(sortTokenByValue);
-  }, [tokenBalanceMap, sortedTokenSlugs]);
+    const result = getTokenBalances(tokenBalanceMap, tokenSlugs);
+
+    sortTokensByBalanceInSelector(result, priorityTokens);
+
+    return result;
+  }, [tokenBalanceMap, tokenSlugs, priorityTokens]);
 
   const onClickItem = useCallback((item: TokenBalanceItemType) => {
     return () => {
@@ -52,6 +60,9 @@ function Component ({ className = '', id, onCancel, sortedTokenSlugs, tokenBalan
   }, [navigate, onCancel]);
 
   // todo: auto clear search when closing modal, may need update reactUI swList component
+  const handleSearch = useCallback((value: string) => {
+    setCurrentSearchText(value);
+  }, []);
 
   const renderItem = useCallback(
     (tokenBalance: TokenBalanceItemType) => {
@@ -70,39 +81,51 @@ function Component ({ className = '', id, onCancel, sortedTokenSlugs, tokenBalan
     [assetRegistry, multiChainAssetMap, onClickItem]
   );
 
-  const searchFunc = useCallback((item: TokenBalanceItemType, searchText: string) => {
-    const searchTextLowerCase = searchText.toLowerCase();
-    const chainName = chainInfoMap[item.chain || '']?.name?.toLowerCase();
-    const symbol = item.symbol.toLowerCase();
+  const filteredItems = useMemo(() => {
+    return tokenBalances.filter((item) => {
+      const searchTextLowerCase = currentSearchText.toLowerCase();
+      const chainName = chainInfoMap[item.chain || '']?.name?.toLowerCase();
+      const symbol = item.symbol.toLowerCase();
 
-    return (
-      symbol.includes(searchTextLowerCase) ||
-      chainName.includes(searchTextLowerCase)
-    );
-  }, [chainInfoMap]);
+      return (
+        symbol.includes(searchTextLowerCase) ||
+        chainName.includes(searchTextLowerCase)
+      );
+    });
+  }, [chainInfoMap, currentSearchText, tokenBalances]);
 
   const renderEmpty = useCallback(() => {
     return (<TokenEmptyList modalId={id} />);
   }, [id]);
+
+  const onPressCancel = useCallback(() => {
+    setCurrentSearchText('');
+    onCancel && onCancel();
+  }, [onCancel]);
 
   return (
     <SwModal
       className={className}
       destroyOnClose={true}
       id={id}
-      onCancel={onCancel}
-      title={t('Select token')}
+      onCancel={onPressCancel}
+      title={t('ui.BALANCE.components.Modal.GlobalSearchToken.selectToken')}
     >
-      <SwList.Section
+      <Search
+        autoFocus={true}
+        className={'__search-box'}
+        onSearch={handleSearch}
+        placeholder={t<string>('ui.BALANCE.components.Modal.GlobalSearchToken.tokenName')}
+        searchValue={currentSearchText}
+      />
+      <SwList
+        className={'__list-container'}
         displayRow
-        enableSearchInput
-        list={tokenBalances}
+        list={filteredItems}
         renderItem={renderItem}
         renderWhenEmpty={renderEmpty}
-        rowGap = {'8px'}
-        searchFunction={searchFunc}
-        searchMinCharactersCount={2}
-        searchPlaceholder={t<string>('Token name')}
+        rowGap={'8px'}
+        searchableMinCharactersCount={2}
       />
     </SwModal>
   );
@@ -110,14 +133,19 @@ function Component ({ className = '', id, onCancel, sortedTokenSlugs, tokenBalan
 
 export const GlobalSearchTokenModal = styled(Component)<Props>(({ theme: { token } }: Props) => {
   return ({
+    '.ant-sw-modal-content': {
+      height: '100vh'
+    },
+
     '.ant-sw-modal-body': {
-      paddingLeft: 0,
-      paddingRight: 0,
-      display: 'flex'
+      display: 'flex',
+      flexDirection: 'column',
+      flex: 1,
+      paddingBottom: 0,
+      overflow: 'auto'
     },
 
     '.ant-sw-list-section': {
-      maxHeight: 'inherit',
       flex: 1
     },
 
@@ -126,7 +154,15 @@ export const GlobalSearchTokenModal = styled(Component)<Props>(({ theme: { token
     },
 
     '.ant-sw-list': {
-      paddingRight: token.padding
+      paddingBottom: 0
+    },
+
+    '.__search-box': {
+      marginBottom: token.marginXS
+    },
+
+    '.__list-container': {
+      overflow: 'auto'
     }
   });
 });

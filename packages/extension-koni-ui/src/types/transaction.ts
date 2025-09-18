@@ -4,6 +4,7 @@
 import { StakingType } from '@subwallet/extension-base/background/KoniTypes';
 
 export interface TransactionFormBaseProps {
+  fromAccountProxy: string;
   from: string,
   chain: string
   asset: string
@@ -37,6 +38,10 @@ export interface EarnParams extends TransactionFormBaseProps {
   value: string;
 }
 
+export interface ChangeValidatorParams extends EarnParams {
+  originValidator: string;
+}
+
 export interface UnStakeParams extends TransactionFormBaseProps {
   value: string;
   validator: string;
@@ -64,4 +69,8 @@ export interface SwapParams extends TransactionFormBaseProps {
   toTokenSlug: string;
   recipient?: string;
   defaultSlug: string;
+}
+
+export interface ClaimBridgeParams extends TransactionFormBaseProps {
+  notificationId: string;
 }

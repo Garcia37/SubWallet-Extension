@@ -19,13 +19,19 @@ const SwLogosMap: Record<string, string> = {
   stellaswap: DefaultLogosMap.stellaswap,
   chain_flip_mainnet: DefaultLogosMap.chain_flip,
   chain_flip_testnet: DefaultLogosMap.chain_flip,
+  simple_swap: DefaultLogosMap.simple_swap,
+  uniswap: DefaultLogosMap.uniswap,
+  kyber: DefaultLogosMap.kyber,
   hydradx_mainnet: DefaultLogosMap.hydradx,
   hydradx_testnet: DefaultLogosMap.hydradx,
+  ordinal_rune: DefaultLogosMap.ordinal_rune,
   [SUBSTRATE_GENERIC_KEY]: DefaultLogosMap[SUBSTRATE_GENERIC_KEY],
   [SUBSTRATE_MIGRATION_KEY]: DefaultLogosMap[SUBSTRATE_MIGRATION_KEY],
   [SwapProviderId.POLKADOT_ASSET_HUB.toLowerCase()]: DefaultLogosMap.polkadot_assethub,
   [SwapProviderId.KUSAMA_ASSET_HUB.toLowerCase()]: DefaultLogosMap.kusama_assethub,
-  [SwapProviderId.ROCOCO_ASSET_HUB.toLowerCase()]: DefaultLogosMap.rococo_assethub
+  [SwapProviderId.ROCOCO_ASSET_HUB.toLowerCase()]: DefaultLogosMap.rococo_assethub,
+  ton: DefaultLogosMap.ton,
+  meld: DefaultLogosMap.meld
 };
 
 export default SwLogosMap;

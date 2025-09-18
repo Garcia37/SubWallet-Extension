@@ -1,10 +1,11 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { YieldPoolType } from '@subwallet/extension-base/types';
 import { BN_TEN } from '@subwallet/extension-base/utils';
 import { NetworkTag } from '@subwallet/extension-koni-ui/components';
 import EarningTypeTag from '@subwallet/extension-koni-ui/components/Earning/EarningTypeTag';
-import { useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { useCreateGetSubnetStakingTokenName, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import { ExtraYieldPositionInfo, NetworkType, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { isRelatedToAstar } from '@subwallet/extension-koni-ui/utils';
 import { Icon, Logo, Number } from '@subwallet/react-ui';
@@ -31,6 +32,7 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const { poolInfoMap } = useSelector((state) => state.earning);
   const { assetRegistry, multiChainAssetMap } = useSelector((state) => state.assetRegistry);
+  const getSubnetStakingTokenName = useCreateGetSubnetStakingTokenName();
   const poolInfo = poolInfoMap[slug];
 
   const poolName = useMemo(() => {
@@ -51,23 +53,46 @@ const Component: React.FC<Props> = (props: Props) => {
     return chainInfoMap[positionInfo.chain].isTestnet;
   }, [chainInfoMap, positionInfo.chain]);
 
+  const subnetShortName = useMemo(() => {
+    return positionInfo.subnetData?.subnetShortName ? `(${positionInfo.subnetData.subnetShortName})` : '';
+  }, [positionInfo.subnetData?.subnetShortName]);
+
+  const subnetToken = useMemo(() => {
+    return getSubnetStakingTokenName(poolInfo.chain, poolInfo.metadata.subnetData?.netuid || 0);
+  }, [getSubnetStakingTokenName, poolInfo.chain, poolInfo.metadata.subnetData?.netuid]);
+
+  const isSubnetStaking = useMemo(() => YieldPoolType.SUBNET_STAKING.includes(poolInfo.type), [poolInfo.type]);
+
   return (
     <div
       className={CN(className)}
       onClick={onClick}
     >
-      <div className={'__item-left-part'}>
-        <Logo
-          className={'__item-logo'}
-          isShowSubLogo={true}
-          size={40}
-          subNetwork={poolInfo.metadata.logo || poolInfo.chain}
-          token={balanceToken.toLowerCase()}
-        />
-
+      <div className='__item-left-part'>
+        {!isSubnetStaking
+          ? (
+            <Logo
+              className='__item-logo'
+              isShowSubLogo={true}
+              size={40}
+              subNetwork={poolInfo.metadata.logo || poolInfo.chain}
+              token={balanceToken.toLowerCase()}
+            />
+          )
+          : (
+            <Logo
+              className='__item-logo'
+              isShowSubLogo={false}
+              network={poolInfo.chain}
+              size={40}
+              token={subnetToken}
+            />
+          )}
         <div className='__item-lines-container'>
           <div className='__item-line-1'>
-            <div className='__item-name'>{poolName}</div>
+            <div className='__item-name'> { poolName }
+              <span className='__subnet-short-name'> {subnetShortName} </span>
+            </div>
 
             {
               !_isRelatedToAstar && (
@@ -116,7 +141,7 @@ const Component: React.FC<Props> = (props: Props) => {
         {
           _isRelatedToAstar && (
             <div className={'__visit-dapp'}>
-              {t('View on dApp')}
+              {t('ui.EARNING.components.Earning.PositionItem.viewOnDapp')}
             </div>
           )
         }
@@ -188,6 +213,9 @@ const EarningPositionItem = styled(Component)<Props>(({ theme: { token } }: Prop
       fontWeight: token.headingFontWeight,
       overflow: 'hidden',
       textOverflow: 'ellipsis'
+    },
+    '.__subnet-short-name': {
+      color: token.colorTextLight4
     },
 
     '.__item-balance-value': {

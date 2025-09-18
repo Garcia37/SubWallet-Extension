@@ -51,32 +51,45 @@ const Component: React.FC<Props> = (props: Props) => {
     );
   }
 
+  if (isStaking) {
+    return (
+      <>
+        <MetaInfo.Chain
+          chain={data.chain}
+          label={t('ui.HISTORY.screen.HistoryDetail.Header.network')}
+        />
+        <MetaInfo.Account
+          address={data.from}
+          label={t('ui.HISTORY.screen.HistoryDetail.Header.fromAccount')}
+          name={data.fromName}
+          networkPrefix={chainInfoMap[data.chain]?.substrateInfo?.addressPrefix}
+        />
+      </>
+    );
+  }
+
   return (
     <>
-      <MetaInfo.Chain
+      {data.to && <MetaInfo.Chain
         chain={data.chain}
-        label={t('Network')}
+        label={t('ui.HISTORY.screen.HistoryDetail.Header.network')}
+      />}
+
+      <MetaInfo.Transfer
+        destinationChain={{
+          slug: data.chain,
+          name: _getChainName(chainInfoMap[data.chain])
+        }}
+        originChain={{
+          slug: data.chain,
+          name: _getChainName(chainInfoMap[data.chain])
+        }}
+        recipientAddress={data.to}
+        recipientName={data.toName}
+        senderAddress={data.from}
+        senderName={data.fromName}
       />
 
-      {
-        isStaking
-          ? (
-            <MetaInfo.Account
-              address={data.from}
-              label={t('From account')}
-              name={data.fromName}
-              networkPrefix={chainInfoMap[data.chain]?.substrateInfo?.addressPrefix}
-            />
-          )
-          : (
-            <MetaInfo.Transfer
-              recipientAddress={data.to}
-              recipientName={data.toName}
-              senderAddress={data.from}
-              senderName={data.fromName}
-            />
-          )
-      }
     </>
   );
 };

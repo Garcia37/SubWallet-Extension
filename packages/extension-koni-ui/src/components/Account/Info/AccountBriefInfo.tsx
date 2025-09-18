@@ -1,7 +1,7 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccountJson } from '@subwallet/extension-base/background/types';
+import { AccountJson } from '@subwallet/extension-base/types';
 import AvatarGroup from '@subwallet/extension-koni-ui/components/Account/Info/AvatarGroup';
 import useChainInfo from '@subwallet/extension-koni-ui/hooks/chain/useChainInfo';
 import useTranslation from '@subwallet/extension-koni-ui/hooks/common/useTranslation';
@@ -29,7 +29,7 @@ const Component: React.FC<Props> = ({ account, className }: Props) => {
         className='account-name'
         ellipsis={true}
       >
-        { isAll ? t('All accounts') : account.name}
+        { isAll ? t('ui.ACCOUNT.components.Account.Info.Brief.allAccounts') : account.name}
       </Typography.Text>
       {!isAll && <div className='account-address'>(...{address.slice(-3)})</div>}
     </div>

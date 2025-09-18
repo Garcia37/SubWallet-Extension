@@ -1,12 +1,13 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { Avatar } from '@subwallet/extension-koni-ui/components';
+import { AccountProxyAvatar } from '@subwallet/extension-koni-ui/components';
 import { ADD_ADDRESS_BOOK_MODAL } from '@subwallet/extension-koni-ui/constants';
 import { useNotification, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import { editContactAddress } from '@subwallet/extension-koni-ui/messaging';
 import { FormCallbacks, FormFieldData, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { simpleCheckForm, toShort } from '@subwallet/extension-koni-ui/utils';
+import { isAddress } from '@subwallet/keyring';
 import { Button, Form, Icon, Input, ModalContext, SwModal } from '@subwallet/react-ui';
 import CN from 'classnames';
 import { PlusCircle } from 'phosphor-react';
@@ -14,8 +15,6 @@ import { RuleObject } from 'rc-field-form/lib/interface';
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styled from 'styled-components';
-
-import { isAddress } from '@polkadot/util-crypto';
 
 type Props = ThemeProps;
 
@@ -62,11 +61,11 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const addressValidator = useCallback((rule: RuleObject, address: string): Promise<void> => {
     if (!address) {
-      return Promise.reject(new Error(t('Contact address is required')));
+      return Promise.reject(new Error(t('ui.components.Modal.AddressBook.AddContact.contactAddressRequired')));
     }
 
     if (!isAddress(address)) {
-      return Promise.reject(new Error(t('Invalid contact address')));
+      return Promise.reject(new Error(t('ui.components.Modal.AddressBook.AddContact.invalidContactAddress')));
     }
 
     return Promise.resolve();
@@ -74,11 +73,11 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const nameValidator = useCallback((rule: RuleObject, name: string): Promise<void> => {
     if (!name) {
-      return Promise.reject(new Error(t('Contact name is required')));
+      return Promise.reject(new Error(t('ui.components.Modal.AddressBook.AddContact.contactNameRequired')));
     }
 
     if (existNames.includes(name)) {
-      return Promise.reject(new Error(t('Contact name must be unique')));
+      return Promise.reject(new Error(t('ui.components.Modal.AddressBook.AddContact.contactNameMustBeUnique')));
     }
 
     return Promise.resolve();
@@ -126,7 +125,7 @@ const Component: React.FC<Props> = (props: Props) => {
       id={modalId}
       maskClosable={!loading}
       onCancel={onCancel}
-      title={t('Add contact')}
+      title={t('ui.components.Modal.AddressBook.AddContact.addContact')}
     >
       <Form
         className='form-space-sm'
@@ -147,9 +146,10 @@ const Component: React.FC<Props> = (props: Props) => {
           statusHelpAsTooltip={true}
         >
           <Input
-            label={t('Contact name')}
+            label={t('ui.components.Modal.AddressBook.AddContact.contactName')}
             prefix={(
-              <Avatar
+              <AccountProxyAvatar
+                className={'__account-avatar'}
                 size={20}
                 value={address}
               />
@@ -167,7 +167,7 @@ const Component: React.FC<Props> = (props: Props) => {
         >
           <Input
             className='address-input'
-            label={t('Contact address')}
+            label={t('ui.components.Modal.AddressBook.AddContact.contactAddress')}
             prefix={
               address && isAddress(address) && (
                 <div className={'__overlay'}>
@@ -194,7 +194,7 @@ const Component: React.FC<Props> = (props: Props) => {
             )}
             loading={loading}
           >
-            {t('Add contact')}
+            {t('ui.components.Modal.AddressBook.AddContact.addContact')}
           </Button>
         </Form.Item>
       </Form>

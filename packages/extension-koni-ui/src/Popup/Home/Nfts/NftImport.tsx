@@ -8,8 +8,9 @@ import { AddressInput, ChainSelector, Layout, PageWrapper, TokenTypeSelector } f
 import { DataContext } from '@subwallet/extension-koni-ui/contexts/DataContext';
 import { useChainChecker, useGetChainPrefixBySlug, useGetNftContractSupportedChains, useNotification, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { upsertCustomToken, validateCustomToken } from '@subwallet/extension-koni-ui/messaging';
-import { FormCallbacks, FormFieldData, ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { FormCallbacks, FormFieldData, FormRule, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { convertFieldToError, convertFieldToObject, reformatAddress, simpleCheckForm } from '@subwallet/extension-koni-ui/utils';
+import { reformatContractAddress } from '@subwallet/extension-koni-ui/utils/account/reformatContractAddress';
 import { Form, Icon, Input } from '@subwallet/react-ui';
 import { PlusCircle } from 'phosphor-react';
 import { RuleObject } from 'rc-field-form/lib/interface';
@@ -92,7 +93,8 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
 
     const empty = Object.entries(all).some(([key, value]) => key !== 'symbol' ? !value : false);
 
-    const { chain, type } = changes;
+    const { chain, contractAddress, type } = changes;
+    const { chain: selectedChain } = all;
 
     if (chain) {
       const nftTypes = getNftTypeSupported(chainInfoMap[chain]);
@@ -108,6 +110,10 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
 
     if (type) {
       form.resetFields(['contractAddress', 'collectionName']);
+    }
+
+    if (contractAddress) {
+      form.setFieldValue('contractAddress', reformatContractAddress(selectedChain, contractAddress));
     }
 
     if (allError.contractAddress.length > 0) {
@@ -141,20 +147,27 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
         icon: ''
       })
         .then((result) => {
-          if (result) {
+          if (result.error === 'incompatibleNFT') {
             showNotification({
-              message: t('Imported NFT successfully')
+              type: 'error',
+              message: t('ui.NFT.screen.NftsImport.failedToImportIncompatibleNft')
+            });
+          } else if (result.success) {
+            showNotification({
+              type: 'success',
+              message: t('ui.NFT.screen.NftsImport.importedNftSuccessfully')
             });
             goBack();
           } else {
             showNotification({
-              message: t('An error occurred, please try again')
+              type: 'error',
+              message: t('ui.NFT.screen.NftsImport.anErrorOccurredPleaseTryAgain')
             });
           }
         })
         .catch(() => {
           showNotification({
-            message: t('An error occurred, please try again')
+            message: t('ui.NFT.screen.NftsImport.anErrorOccurredPleaseTryAgain')
           });
         })
         .finally(() => {
@@ -170,54 +183,67 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
       if (parsedValue.length >= 3) {
         resolve();
       } else {
-        reject(new Error(t('Collection name must have at least 3 characters')));
+        reject(new Error(t('ui.NFT.screen.NftsImport.collectionNameMinLength')));
       }
     });
   }, [t]);
 
-  const contractAddressValidator = useCallback((rule: RuleObject, contractAddress: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (!isAddress(contractAddress)) {
-        reject(t('Invalid contract address'));
-      } else {
-        const isValidEvmContract = [_AssetType.ERC721].includes(selectedNftType) && isEthereumAddress(contractAddress);
-        const isValidWasmContract = [_AssetType.PSP34].includes(selectedNftType) && isValidSubstrateAddress(contractAddress);
-        const reformattedAddress = reformatAddress(contractAddress, chainNetworkPrefix);
+  const contractRules = useMemo((): FormRule[] => {
+    return [
+      ({ getFieldValue }) => ({
+        transform: (contractAddress: string) => {
+          const selectedChain = getFieldValue('chain') as string;
 
-        if (isValidEvmContract || isValidWasmContract) {
-          setLoading(true);
-          validateCustomToken({
-            contractAddress: reformattedAddress,
-            originChain: selectedChain,
-            type: selectedNftType
-          })
-            .then((validationResult) => {
-              setLoading(false);
+          return reformatContractAddress(selectedChain, contractAddress);
+        },
+        validator: (_, contractAddress: string): Promise<void> => {
+          return new Promise((resolve, reject) => {
+            if (!isAddress(contractAddress)) {
+              reject(t('ui.NFT.screen.NftsImport.invalidContractAddress'));
+            } else {
+              const selectedChain = getFieldValue('chain') as string;
+              const selectedNftType = getFieldValue('type') as _AssetType;
+              const isValidEvmContract = [_AssetType.ERC721].includes(selectedNftType) && isEthereumAddress(contractAddress);
+              const isValidWasmContract = [_AssetType.PSP34].includes(selectedNftType) && isValidSubstrateAddress(contractAddress);
+              const reformattedAddress = reformatAddress(contractAddress, chainNetworkPrefix);
 
-              if (validationResult.isExist) {
-                reject(t('Existed NFT'));
+              if (isValidEvmContract || isValidWasmContract) {
+                setLoading(true);
+                validateCustomToken({
+                  contractAddress: reformattedAddress,
+                  originChain: selectedChain,
+                  type: selectedNftType
+                })
+                  .then((validationResult) => {
+                    setLoading(false);
+
+                    if (validationResult.isExist) {
+                      reject(t('ui.NFT.screen.NftsImport.existedNft'));
+                    }
+
+                    if (validationResult.contractError) {
+                      reject(t('ui.NFT.screen.NftsImport.invalidContractForChain'));
+                    }
+
+                    if (!validationResult.isExist && !validationResult.contractError) {
+                      form.setFieldValue('collectionName', validationResult.name);
+                      form.setFieldValue('symbol', validationResult.symbol);
+                      resolve();
+                    }
+                  })
+                  .catch(() => {
+                    setLoading(false);
+                    reject(t('ui.NFT.screen.NftsImport.invalidContractForChain'));
+                  });
+              } else {
+                reject(t('ui.NFT.screen.NftsImport.invalidContractAddress'));
               }
-
-              if (validationResult.contractError) {
-                reject(t('Invalid contract for the selected chain'));
-              }
-
-              if (!validationResult.isExist && !validationResult.contractError) {
-                form.setFieldValue('collectionName', validationResult.name);
-                form.setFieldValue('symbol', validationResult.symbol);
-                resolve();
-              }
-            })
-            .catch(() => {
-              setLoading(false);
-              reject(t('Invalid contract for the selected chain'));
-            });
-        } else {
-          reject(t('Invalid contract address'));
+            }
+          });
         }
-      }
-    });
-  }, [chainNetworkPrefix, form, selectedChain, selectedNftType, t]);
+      })
+    ];
+  }, [chainNetworkPrefix, form, t]);
 
   useEffect(() => {
     selectedChain && checkChain(selectedChain);
@@ -240,9 +266,9 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
           ),
           loading: loading,
           onClick: form.submit,
-          children: t('Import')
+          children: t('ui.NFT.screen.NftsImport.import')
         }}
-        title={t<string>('Import NFT')}
+        title={t<string>('ui.NFT.screen.NftsImport.importNft')}
       >
         <div className={'nft_import__container'}>
           <Form
@@ -263,9 +289,9 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
             >
               <ChainSelector
                 items={chains}
-                label={t<string>('Network')}
-                placeholder={t('Select network')}
-                title={t('Select network')}
+                label={t<string>('ui.NFT.screen.NftsImport.network')}
+                placeholder={t('ui.NFT.screen.NftsImport.selectNetwork')}
+                title={t('ui.NFT.screen.NftsImport.selectNetwork')}
               />
             </Form.Item>
 
@@ -276,22 +302,22 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                 className={className}
                 disabled={!selectedChain}
                 items={nftTypeOptions}
-                label={t<string>('Type')}
-                placeholder={t('Select NFT type')}
-                title={t('Select NFT type')}
+                label={t<string>('ui.NFT.screen.NftsImport.type')}
+                placeholder={t('ui.NFT.screen.NftsImport.selectNftType')}
+                title={t('ui.NFT.screen.NftsImport.selectNftType')}
               />
             </Form.Item>
 
             <Form.Item
               name='contractAddress'
-              rules={[{ validator: contractAddressValidator }]}
+              rules={contractRules}
               statusHelpAsTooltip={true}
             >
               <AddressInput
                 addressPrefix={chainNetworkPrefix}
                 disabled={!selectedNftType}
-                label={t<string>('Contract address')}
-                placeholder={t('Enter or paste an address')}
+                label={t<string>('ui.NFT.screen.NftsImport.contractAddress')}
+                placeholder={t('ui.NFT.screen.NftsImport.enterOrPasteAddress')}
                 showScanner={true}
               />
             </Form.Item>
@@ -304,7 +330,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
             >
               <Input
                 disabled={nameDisabled}
-                label={t<string>('NFT collection name')}
+                label={t<string>('ui.NFT.screen.NftsImport.nftCollectionName')}
               />
             </Form.Item>
           </Form>

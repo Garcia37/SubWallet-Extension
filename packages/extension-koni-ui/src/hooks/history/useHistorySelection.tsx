@@ -1,44 +1,110 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccountJson } from '@subwallet/extension-base/background/types';
-import { useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { AccountProxy } from '@subwallet/extension-base/types';
+import { useChainInfoWithState, useCoreCreateReformatAddress, useGetChainAndExcludedTokenByCurrentAccountProxy, useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { AccountAddressItemType, ChainItemType } from '@subwallet/extension-koni-ui/types';
 import { isAccountAll } from '@subwallet/extension-koni-ui/utils';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
-
-function getSelectedAddress (accounts: AccountJson[], currentAddress: string | undefined): string {
-  if (!currentAddress || !accounts.length) {
-    return '';
-  }
-
-  if (!isAccountAll(currentAddress)) {
-    return currentAddress;
-  }
-
-  return (accounts.find((a) => !isAccountAll(a.address)))?.address || '';
-}
 
 export default function useHistorySelection () {
   const { address: propAddress, chain: propChain } = useParams<{address: string, chain: string}>();
-  const { accounts, currentAccount } = useSelector((root) => root.accountState);
-  const preservedCurrentAddress = useRef<string>(currentAccount ? currentAccount.address : '');
-  const [selectedAddress, setSelectedAddress] = useState<string>(propAddress || getSelectedAddress(accounts, currentAccount?.address));
-  const [selectedChain, setSelectedChain] = useState<string>(propChain || 'polkadot');
+  const { chainInfoMap } = useSelector((root) => root.chainStore);
+  const chainInfoList = useChainInfoWithState();
+  const { allowedChains } = useGetChainAndExcludedTokenByCurrentAccountProxy();
+  const getReformatAddress = useCoreCreateReformatAddress();
+  const { accountProxies, currentAccountProxy } = useSelector((root) => root.accountState);
+
+  const [selectedAddress, setSelectedAddress] = useState<string>(propAddress || '');
+  const [selectedChain, setSelectedChain] = useState<string>(propChain || '');
+
+  const chainItems = useMemo<ChainItemType[]>(() => {
+    const result: ChainItemType[] = [];
+
+    chainInfoList.forEach((c) => {
+      if (allowedChains.includes(c.slug)) {
+        result.push({
+          name: c.name,
+          slug: c.slug
+        });
+      }
+    });
+
+    return result;
+  }, [allowedChains, chainInfoList]);
+
+  const accountAddressItems = useMemo(() => {
+    if (!currentAccountProxy) {
+      return [];
+    }
+
+    const chainInfo = selectedChain ? chainInfoMap[selectedChain] : undefined;
+
+    if (!chainInfo) {
+      return [];
+    }
+
+    const result: AccountAddressItemType[] = [];
+
+    const updateResult = (ap: AccountProxy) => {
+      ap.accounts.forEach((a) => {
+        const formatedAddress = getReformatAddress(a, chainInfo);
+
+        if (formatedAddress) {
+          result.push({
+            accountName: ap.name,
+            accountProxyId: ap.id,
+            accountProxyType: ap.accountType,
+            accountType: a.type,
+            address: a.address,
+            displayAddress: formatedAddress
+          });
+        }
+      });
+    };
+
+    if (isAccountAll(currentAccountProxy.id)) {
+      accountProxies.forEach((ap) => {
+        if (isAccountAll(ap.id)) {
+          return;
+        }
+
+        updateResult(ap);
+      });
+    } else {
+      updateResult(currentAccountProxy);
+    }
+
+    return result;
+  }, [accountProxies, chainInfoMap, currentAccountProxy, getReformatAddress, selectedChain]);
 
   useEffect(() => {
-    if (currentAccount?.address) {
-      if (preservedCurrentAddress.current !== currentAccount.address) {
-        preservedCurrentAddress.current = currentAccount.address;
-        setSelectedAddress(getSelectedAddress(accounts, currentAccount.address));
-      }
+    if (chainItems.length) {
+      setSelectedChain((prevChain) => {
+        if (!prevChain) {
+          return chainItems[0].slug;
+        }
+
+        if (!chainItems.some((c) => c.slug === prevChain)) {
+          return chainItems[0].slug;
+        }
+
+        return prevChain;
+      });
     } else {
-      preservedCurrentAddress.current = '';
-      setSelectedAddress('');
+      setSelectedChain('');
     }
-  }, [accounts, currentAccount?.address]);
+  }, [chainInfoMap, chainItems]);
+
+  // NOTE: This hook doesn't handle selected address manually,
+  // because it's now controlled via the `autoSelectFirstItem` prop
+  // in the AccountAddressSelector component. This is the best approach for now;
+  // can be revised if a better solution arises in the future.
 
   return {
+    chainItems,
+    accountAddressItems,
     selectedAddress,
     setSelectedAddress,
     selectedChain,

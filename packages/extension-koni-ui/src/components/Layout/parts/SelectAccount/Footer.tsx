@@ -36,6 +36,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
     <div className={className}>
       <Button
         block={true}
+        className={'__create-new-account-button'}
         icon={(
           <Icon
             phosphorIcon={PlusCircle}
@@ -45,7 +46,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
         onClick={openCreateAccount}
         schema='secondary'
       >
-        {t('Create a new account')}
+        {t('ui.ACCOUNT.components.Layout.SelectAccount.Footer.createNewAccount')}
       </Button>
       <Button
         className='btn-min-width'
@@ -57,7 +58,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
         )}
         onClick={openImportAccount}
         schema='secondary'
-        tooltip={t('Import account')}
+        tooltip={t('ui.ACCOUNT.components.Layout.SelectAccount.Footer.importAccount')}
       />
       <Button
         className='btn-min-width'
@@ -69,7 +70,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
         )}
         onClick={openAttachAccount}
         schema='secondary'
-        tooltip={t('Attach account')}
+        tooltip={t('ui.ACCOUNT.components.Layout.SelectAccount.Footer.attachAccount')}
       />
     </div>
   );
@@ -78,6 +79,15 @@ const Component: React.FC<Props> = ({ className }: Props) => {
 const SelectAccountFooter = styled(Component)<Props>(({ theme: { token } }: Props) => {
   return {
     display: 'flex',
+
+    '.__create-new-account-button': {
+      overflow: 'hidden',
+
+      '.ant-btn-content-wrapper': {
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      }
+    },
 
     '.btn-min-width': {
       minWidth: token.controlHeightLG + token.sizeSM

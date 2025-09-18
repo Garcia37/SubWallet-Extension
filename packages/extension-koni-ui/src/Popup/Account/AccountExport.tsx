@@ -1,20 +1,21 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { AccountActions, AccountChainType, AccountProxyType } from '@subwallet/extension-base/types';
 import { Layout, PageWrapper } from '@subwallet/extension-koni-ui/components';
 import AlertBox from '@subwallet/extension-koni-ui/components/Alert';
 import CloseIcon from '@subwallet/extension-koni-ui/components/Icon/CloseIcon';
 import WordPhrase from '@subwallet/extension-koni-ui/components/WordPhrase';
 import { DEFAULT_ROUTER_PATH } from '@subwallet/extension-koni-ui/constants';
-import useGetAccountByAddress from '@subwallet/extension-koni-ui/hooks/account/useGetAccountByAddress';
+import { useGetAccountProxyById } from '@subwallet/extension-koni-ui/hooks';
 import useCopy from '@subwallet/extension-koni-ui/hooks/common/useCopy';
 import useFocusFormItem from '@subwallet/extension-koni-ui/hooks/form/useFocusFormItem';
 import useDefaultNavigate from '@subwallet/extension-koni-ui/hooks/router/useDefaultNavigate';
-import { exportAccount, exportAccountPrivateKey, keyringExportMnemonic } from '@subwallet/extension-koni-ui/messaging';
+import { exportAccountBatch, exportAccountMnemonic, exportAccountPrivateKey } from '@subwallet/extension-koni-ui/messaging';
 import { PhosphorIcon, RemindBackUpSeedPhraseParamState, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { FormCallbacks, FormFieldData } from '@subwallet/extension-koni-ui/types/form';
-import { KeyringPair$Json } from '@subwallet/keyring/types';
 import { BackgroundIcon, Button, Field, Form, Icon, Input, PageIcon, SettingItem, SwQRCode } from '@subwallet/react-ui';
+import { KeyringPairs$Json } from '@subwallet/ui-keyring/types';
 import CN from 'classnames';
 import { saveAs } from 'file-saver';
 import { CheckCircle, CopySimple, DownloadSimple, FileJs, Leaf, QrCode, Wallet } from 'phosphor-react';
@@ -22,8 +23,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import styled from 'styled-components';
-
-import { isEthereumAddress } from '@polkadot/util-crypto';
 
 type Props = ThemeProps;
 
@@ -52,12 +51,12 @@ interface ExportFormState {
   [FormFieldName.TYPES]: ExportType[];
 }
 
-const onExportJson = (jsonData: KeyringPair$Json, address: string): (() => void) => {
+const onExportJson = (jsonData: KeyringPairs$Json, accountName: string): (() => void) => {
   return () => {
     if (jsonData) {
       const blob = new Blob([JSON.stringify(jsonData)], { type: 'application/json; charset=utf-8' });
 
-      saveAs(blob, `${address}.json`);
+      saveAs(blob, `${accountName}.json`);
     }
   };
 };
@@ -77,10 +76,11 @@ const Component: React.FC<Props> = (props: Props) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { goBack } = useDefaultNavigate();
-  const { accountAddress } = useParams();
+  const { accountProxyId } = useParams();
+
   const isBackToHome = useLocation().state as RemindBackUpSeedPhraseParamState;
 
-  const account = useGetAccountByAddress(accountAddress);
+  const accountProxy = useGetAccountProxyById(accountProxyId);
 
   const [form] = Form.useForm<ExportFormState>();
 
@@ -94,26 +94,26 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const [privateKey, setPrivateKey] = useState<string>('');
   const [publicKey, setPublicKey] = useState<string>('');
-  const [jsonData, setJsonData] = useState<null | KeyringPair$Json>(null);
+  const [jsonData, setJsonData] = useState<null | KeyringPairs$Json>(null);
   const [seedPhrase, setSeedPhrase] = useState<string>('');
 
   const titleMap = useMemo((): Record<ExportType, string> => ({
-    [ExportType.JSON_FILE]: t('Successful'),
-    [ExportType.QR_CODE]: t('Your QR code'),
-    [ExportType.PRIVATE_KEY]: t('Your private key'),
-    [ExportType.SEED_PHRASE]: t('Your seed phrase')
+    [ExportType.JSON_FILE]: t('ui.ACCOUNT.screen.Account.Export.successful'),
+    [ExportType.QR_CODE]: t('ui.ACCOUNT.screen.Account.Export.yourQrCode'),
+    [ExportType.PRIVATE_KEY]: t('ui.ACCOUNT.screen.Account.Export.yourPrivateKey'),
+    [ExportType.SEED_PHRASE]: t('ui.ACCOUNT.screen.Account.Export.yourSeedPhrase')
   }), [t]);
 
   const qrData = useMemo((): string => {
     const prefix = 'secret';
     const result: string[] = [prefix, privateKey || '', publicKey];
 
-    if (account?.name) {
-      result.push(account.name);
+    if (accountProxy?.name) {
+      result.push(accountProxy.name);
     }
 
     return result.join(':');
-  }, [account?.name, publicKey, privateKey]);
+  }, [accountProxy?.name, privateKey, publicKey]);
 
   const onCopyPrivateKey = useCopy(privateKey);
 
@@ -136,11 +136,11 @@ const Component: React.FC<Props> = (props: Props) => {
       return;
     }
 
-    if (!account) {
+    if (!accountProxy) {
       return;
     }
 
-    const address = account.address;
+    const address = accountProxy.accounts[0].address;
 
     if (!address) {
       return;
@@ -162,7 +162,8 @@ const Component: React.FC<Props> = (props: Props) => {
           }
         };
 
-        if (exportTypes.includes(ExportType.PRIVATE_KEY) || exportTypes.includes(ExportType.QR_CODE)) {
+        if ((exportTypes.includes(ExportType.PRIVATE_KEY) && accountProxy.accountActions.includes(AccountActions.EXPORT_PRIVATE_KEY)) ||
+          (exportTypes.includes(ExportType.QR_CODE) && accountProxy.accountActions.includes(AccountActions.EXPORT_QR))) {
           exportAccountPrivateKey(address, password).then((res) => {
             setPrivateKey(res.privateKey);
             setPublicKey(res.publicKey);
@@ -175,8 +176,8 @@ const Component: React.FC<Props> = (props: Props) => {
           result.privateKey = true;
         }
 
-        if (exportTypes.includes(ExportType.SEED_PHRASE) && account?.isMasterAccount) {
-          keyringExportMnemonic({ address, password: password })
+        if (exportTypes.includes(ExportType.SEED_PHRASE) && accountProxy.accountActions.includes(AccountActions.EXPORT_MNEMONIC)) {
+          exportAccountMnemonic({ proxyId: accountProxy.id, password: password })
             .then((res) => {
               setSeedPhrase(res.result);
               result.seedPhrase = true;
@@ -189,14 +190,14 @@ const Component: React.FC<Props> = (props: Props) => {
           result.seedPhrase = true;
         }
 
-        if (exportTypes.includes(ExportType.JSON_FILE)) {
-          exportAccount(address, password).then((res) => {
+        if (exportTypes.includes(ExportType.JSON_FILE) && accountProxy.accountActions.includes(AccountActions.EXPORT_JSON)) {
+          exportAccountBatch({ proxyIds: [accountProxy.id], password: password }).then((res) => {
             setJsonData(res.exportedJson);
             result.jsonFile = true;
             checkDone();
 
             if (exportSingle) {
-              onExportJson(res.exportedJson, address)();
+              onExportJson(res.exportedJson, accountProxy.name)();
             }
           }).catch((e: Error) => {
             reject(new Error(e.message));
@@ -214,7 +215,7 @@ const Component: React.FC<Props> = (props: Props) => {
           let message = e.message;
 
           if (message === 'Unable to decode using the supplied passphrase') {
-            message = t('Wrong password');
+            message = t('ui.ACCOUNT.screen.Account.Export.wrongPassword');
           }
 
           form.setFields([{ name: FormFieldName.PASSWORD, errors: [message] }]);
@@ -223,7 +224,7 @@ const Component: React.FC<Props> = (props: Props) => {
           setLoading(false);
         });
     }, 500);
-  }, [account, form, t]);
+  }, [accountProxy, form, t]);
 
   const onPressType = useCallback((value: ExportType) => {
     return () => {
@@ -245,63 +246,64 @@ const Component: React.FC<Props> = (props: Props) => {
   const items = useMemo((): ExportItem[] => {
     return [
       {
-        disable: !account || account.isExternal || !account.isMasterAccount,
+        disable: !accountProxy || !accountProxy.accountActions.includes(AccountActions.EXPORT_MNEMONIC),
         hidden: false,
         icon: Leaf,
-        label: t('Export seed phrase'),
+        label: t('ui.ACCOUNT.screen.Account.Export.exportSeedPhrase'),
         type: ExportType.SEED_PHRASE
       },
       {
-        disable: !account || !!account.isExternal,
+        disable: !accountProxy || !accountProxy.accountActions.includes(AccountActions.EXPORT_JSON),
         hidden: false,
         icon: FileJs,
-        label: t('Export JSON file'),
+        label: t('ui.ACCOUNT.screen.Account.Export.exportJsonFile'),
         type: ExportType.JSON_FILE
       },
       {
-        disable: !account || account.isExternal || !isEthereumAddress(account.address),
-        hidden: !isEthereumAddress(account?.address || ''),
+
+        disable: !accountProxy || !accountProxy.accountActions.includes(AccountActions.EXPORT_PRIVATE_KEY),
+        hidden: false,
         icon: Wallet,
-        label: t('Export private key'),
+        label: t('ui.ACCOUNT.screen.Account.Export.exportPrivateKey'),
         type: ExportType.PRIVATE_KEY
       },
       {
-        disable: !account || !!account?.isExternal,
+        disable: !accountProxy || !accountProxy.accountActions.includes(AccountActions.EXPORT_QR),
         hidden: false,
         icon: QrCode,
-        label: t('Export QR Code'),
+        label: t('ui.ACCOUNT.screen.Account.Export.exportQrCode'),
         type: ExportType.QR_CODE
       }
     ];
-  }, [account, t]);
+  }, [accountProxy, t]);
 
   const onBack = useCallback(() => {
-    if (accountAddress && !isBackToHome?.from) {
-      navigate(`/accounts/detail/${accountAddress}`);
+    if (accountProxyId && !isBackToHome?.from) {
+      navigate(`/accounts/detail/${accountProxyId}`);
     } else {
       navigate(isBackToHome.from, { state: { ...isBackToHome, from: 'ignoreBanner' } });
     }
-  }, [accountAddress, isBackToHome, navigate]);
+  }, [accountProxyId, isBackToHome, navigate]);
 
   const goHomeWithState = useCallback(() => {
     goBack(DEFAULT_ROUTER_PATH, { from: 'ignoreBanner' });
   }, [goBack]);
 
   useEffect(() => {
-    if (!account) {
+    if (!accountProxy || accountProxy.accounts.length === 0) {
       goBack(DEFAULT_ROUTER_PATH, { from: 'ignoreBanner' });
     }
-  }, [account, goBack, navigate]);
+  }, [accountProxy, goBack, navigate]);
 
   useEffect(() => {
-    if (account?.address) {
+    if (accountProxy?.id) {
       form.resetFields();
     }
-  }, [account?.address, form]);
+  }, [accountProxy?.id, form]);
 
   useFocusFormItem(form, FormFieldName.PASSWORD);
 
-  if (!account) {
+  if (!accountProxy || accountProxy.accounts.length === 0) {
     return null;
   }
 
@@ -311,7 +313,7 @@ const Component: React.FC<Props> = (props: Props) => {
         disableBack={loading}
         onBack={onBack}
         rightFooterButton={{
-          children: firstStep ? t('Confirm') : t('Finish'),
+          children: firstStep ? t('ui.ACCOUNT.screen.Account.Export.confirm') : t('ui.ACCOUNT.screen.Account.Export.finish'),
           icon: firstStep ? undefined : FinishIcon,
           disabled: isDisabled || !exportTypes.length,
           loading: loading,
@@ -326,17 +328,17 @@ const Component: React.FC<Props> = (props: Props) => {
         ]}
         title={
           firstStep
-            ? t('Export account')
+            ? t('ui.ACCOUNT.screen.Account.Export.exportAccount')
             : !exportSingle
-              ? t('Export successful')
+              ? t('ui.ACCOUNT.screen.Account.Export.exportSuccessful')
               : titleMap[exportTypes[0]]
         }
       >
         <div className='body-container'>
           <div className={CN('notice', { 'mb-large': !firstStep })}>
             <AlertBox
-              description={t('Anyone with your key can use any assets held in your account.')}
-              title={t('Warning: Never disclose this key')}
+              description={t('ui.ACCOUNT.screen.Account.Export.privateKeyWarning')}
+              title={t('ui.ACCOUNT.screen.Account.Export.warningNeverDiscloseKey')}
               type='warning'
             />
           </div>
@@ -356,7 +358,7 @@ const Component: React.FC<Props> = (props: Props) => {
                   name={FormFieldName.PASSWORD}
                   rules={[
                     {
-                      message: t('Password is required'),
+                      message: t('ui.ACCOUNT.screen.Account.Export.passwordIsRequired'),
                       required: true
                     }
                   ]}
@@ -364,7 +366,7 @@ const Component: React.FC<Props> = (props: Props) => {
                 >
                   <Input.Password
                     disabled={loading}
-                    placeholder={t('Type your SubWallet password')}
+                    placeholder={t('ui.ACCOUNT.screen.Account.Export.typeYourSubWalletPassword')}
                     suffix={<span />}
                     type='password'
                   />
@@ -445,7 +447,7 @@ const Component: React.FC<Props> = (props: Props) => {
                         onClick={onCopyPrivateKey}
                         type='ghost'
                       >
-                        {t('Copy to clipboard')}
+                        {t('ui.ACCOUNT.screen.Account.Export.copyToClipboard')}
                       </Button>
                     </div>
                   )
@@ -465,7 +467,11 @@ const Component: React.FC<Props> = (props: Props) => {
                       <div className='qr-area'>
                         <SwQRCode
                           errorLevel='Q'
-                          logoPadding={!isEthereumAddress(account.address) ? 4 : 3}
+                          logoPadding={
+                            accountProxy.chainTypes.includes(AccountChainType.ETHEREUM) &&
+                          accountProxy.accountType === AccountProxyType.SOLO
+                              ? 4
+                              : 3}
                           size={264}
                           value={qrData}
                         />
@@ -476,7 +482,7 @@ const Component: React.FC<Props> = (props: Props) => {
                 {
                   exportTypes.includes(ExportType.JSON_FILE) && jsonData && (
                     <div className='result-content'>
-                      <div className='result-title'>{t('Your json file')}</div>
+                      <div className='result-title'>{t('ui.ACCOUNT.screen.Account.Export.yourJsonFile')}</div>
                       {
                         exportSingle && (
                           <>
@@ -490,10 +496,10 @@ const Component: React.FC<Props> = (props: Props) => {
                               />
                             </div>
                             <div className='json-done-tile'>
-                              {t('Success!')}
+                              {t('ui.ACCOUNT.screen.Account.Export.success')}
                             </div>
                             <div className='json-done-description'>
-                              {t('You have successfully exported JSON file for this account')}
+                              {t('ui.ACCOUNT.screen.Account.Export.successfullyExportedJson')}
                             </div>
                           </>
                         )
@@ -510,8 +516,8 @@ const Component: React.FC<Props> = (props: Props) => {
                                 weight='fill'
                               />
                             )}
-                            name={`${account.address}.json`}
-                            onPressItem={onExportJson(jsonData, account.address)}
+                            name={`${accountProxy.id}.json`}
+                            onPressItem={onExportJson(jsonData, accountProxy.name)}
                             rightItem={(
                               <Icon
                                 className='setting-item-right-icon'

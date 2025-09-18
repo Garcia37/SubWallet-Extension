@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ExtrinsicDataTypeMap, ExtrinsicType } from '@subwallet/extension-base/background/KoniTypes';
+import { _isAcrossChainBridge } from '@subwallet/extension-base/services/balance-service/transfer/xcm/acrossBridge';
 import { AlertBox } from '@subwallet/extension-koni-ui/components';
 import MetaInfo from '@subwallet/extension-koni-ui/components/MetaInfo/MetaInfo';
-import { useGetChainPrefixBySlug, useGetNativeTokenBasicInfo } from '@subwallet/extension-koni-ui/hooks';
+import QuoteRateDisplay from '@subwallet/extension-koni-ui/components/Swap/QuoteRateDisplay';
+import { useGetNativeTokenBasicInfo } from '@subwallet/extension-koni-ui/hooks';
 import { RootState } from '@subwallet/extension-koni-ui/stores';
 import CN from 'classnames';
 import React, { useMemo } from 'react';
@@ -24,30 +26,32 @@ const Component: React.FC<Props> = ({ className, transaction }: Props) => {
   const assetRegistryMap = useSelector((root: RootState) => root.assetRegistry.assetRegistry);
   const tokenInfo = assetRegistryMap[transaction.extrinsicType === ExtrinsicType.TRANSFER_XCM ? xcmData.tokenSlug : data.tokenSlug];
 
+  const isAcrossBridge = useMemo(() => {
+    return _isAcrossChainBridge(xcmData.originNetworkKey, xcmData.destinationNetworkKey);
+  }, [xcmData.originNetworkKey, xcmData.destinationNetworkKey]);
+
+  const destTokenInfo = useMemo(() => {
+    if (isAcrossBridge && xcmData.metadata?.destChainSlug) {
+      return assetRegistryMap[xcmData.metadata?.destChainSlug];
+    }
+
+    return tokenInfo;
+  }, [isAcrossBridge, xcmData.metadata?.destChainSlug, tokenInfo, assetRegistryMap]);
+
   const chainInfo = useMemo(
     () => chainInfoMap[transaction.chain],
     [chainInfoMap, transaction.chain]
   );
 
-  const receiveChain = useMemo(() => {
-    if (xcmData) {
-      return xcmData.destinationNetworkKey || transaction.chain;
-    } else {
-      return transaction.chain;
-    }
-  }, [transaction.chain, xcmData]);
-
-  const { decimals: chainDecimals, symbol: chainSymbol } = useGetNativeTokenBasicInfo(transaction.chain);
-  const senderPrefix = useGetChainPrefixBySlug(transaction.chain);
-  const receiverPrefix = useGetChainPrefixBySlug(receiveChain);
+  const { decimals: nativeTokenDecimals, symbol: nativeTokenSymbol } = useGetNativeTokenBasicInfo(transaction.chain);
+  const feeInfo = transaction.estimateFee;
 
   return (
     <>
       <MetaInfo hasBackgroundWrapper>
         <MetaInfo.Account
           address={data.from}
-          label={t('Send from')}
-          networkPrefix={senderPrefix}
+          label={t('ui.TRANSACTION.Confirmations.TransferBlock.sendFrom')}
         />
 
         {
@@ -55,15 +59,14 @@ const Component: React.FC<Props> = ({ className, transaction }: Props) => {
           (
             <MetaInfo.Chain
               chain={chainInfo.slug}
-              label={t('Sender network')}
+              label={t('ui.TRANSACTION.Confirmations.TransferBlock.senderNetwork')}
             />
           )
         }
 
         <MetaInfo.Account
           address={data.to}
-          label={t('Send to')}
-          networkPrefix={receiverPrefix}
+          label={t('ui.TRANSACTION.Confirmations.TransferBlock.sendTo')}
         />
 
         {
@@ -71,7 +74,7 @@ const Component: React.FC<Props> = ({ className, transaction }: Props) => {
           (
             <MetaInfo.Chain
               chain={xcmData.destinationNetworkKey}
-              label={t('Destination network')}
+              label={t('ui.TRANSACTION.Confirmations.TransferBlock.destinationNetwork')}
             />
           )
         }
@@ -81,25 +84,46 @@ const Component: React.FC<Props> = ({ className, transaction }: Props) => {
           (
             <MetaInfo.Chain
               chain={chainInfo.slug}
-              label={t('Network')}
+              label={t('ui.TRANSACTION.Confirmations.TransferBlock.network')}
             />
           )
         }
       </MetaInfo>
 
       <MetaInfo hasBackgroundWrapper>
-        <MetaInfo.Number
-          decimals={tokenInfo.decimals || 0}
-          label={t('Amount')}
-          suffix={tokenInfo.symbol}
-          value={data.value || 0}
-        />
+        {isAcrossBridge && xcmData.metadata
+          ? <>
+            <MetaInfo.Default
+              label={t('ui.TRANSACTION.Confirmations.TransferBlock.quote')}
+            >
+              <QuoteRateDisplay
+                className={'__quote-estimate-swap-value'}
+                fromAssetInfo={tokenInfo}
+                rateValue={Number(xcmData.metadata.rate)}
+                toAssetInfo={destTokenInfo}
+              />
+            </MetaInfo.Default>
+            <MetaInfo.Number
+              decimals={destTokenInfo.decimals || 0}
+              label={t('ui.TRANSACTION.Confirmations.TransferBlock.expectedAmount')}
+              suffix={destTokenInfo.symbol}
+              value={xcmData.metadata.amountOut}
+            />
+          </>
+          : (
+            <MetaInfo.Number
+              decimals={tokenInfo.decimals || 0}
+              label={t('ui.TRANSACTION.Confirmations.TransferBlock.amount')}
+              suffix={tokenInfo.symbol}
+              value={data.value || 0}
+            />
+          )}
 
         <MetaInfo.Number
-          decimals={chainDecimals}
-          label={t('Estimated fee')}
-          suffix={chainSymbol}
-          value={transaction.estimateFee?.value || 0}
+          decimals={feeInfo ? feeInfo.decimals : nativeTokenDecimals}
+          label={t('ui.TRANSACTION.Confirmations.TransferBlock.estimatedFee')}
+          suffix={feeInfo ? feeInfo.symbol : nativeTokenSymbol}
+          value={feeInfo ? feeInfo.value : 0}
         />
       </MetaInfo>
       {
@@ -107,8 +131,8 @@ const Component: React.FC<Props> = ({ className, transaction }: Props) => {
         (
           <AlertBox
             className={CN(className, 'alert-area')}
-            description={t("You'll need to pay an additional fee for the destination network in a cross-chain transfer. This fee cannot be calculated in advance.")}
-            title={t('Pay attention!')}
+            description={t('ui.TRANSACTION.Confirmations.TransferBlock.crossChainAdditionalFee')}
+            title={t('ui.TRANSACTION.Confirmations.TransferBlock.payAttentionExclamation')}
             type='warning'
           />
         )

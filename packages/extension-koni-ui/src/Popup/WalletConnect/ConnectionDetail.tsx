@@ -1,15 +1,15 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AbstractAddressJson, AccountJson } from '@subwallet/extension-base/background/types';
+import { AccountProxy } from '@subwallet/extension-base/types';
 import { stripUrl } from '@subwallet/extension-base/utils';
-import { AccountItemWithName, EmptyList, GeneralEmptyList, Layout, MetaInfo, PageWrapper, WCNetworkAvatarGroup } from '@subwallet/extension-koni-ui/components';
+import { AccountProxyItem, EmptyList, GeneralEmptyList, Layout, MetaInfo, PageWrapper, WCNetworkAvatarGroup } from '@subwallet/extension-koni-ui/components';
 import { DataContext } from '@subwallet/extension-koni-ui/contexts/DataContext';
 import { useConfirmModal, useNotification, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import { disconnectWalletConnectConnection } from '@subwallet/extension-koni-ui/messaging';
 import { ReduxStatus } from '@subwallet/extension-koni-ui/stores/types';
-import { Theme, ThemeProps, WalletConnectChainInfo } from '@subwallet/extension-koni-ui/types';
-import { chainsToWalletConnectChainInfos, getWCAccountList, noop } from '@subwallet/extension-koni-ui/utils';
+import { ThemeProps, WalletConnectChainInfo } from '@subwallet/extension-koni-ui/types';
+import { chainsToWalletConnectChainInfos, getWCAccountProxyList, noop } from '@subwallet/extension-koni-ui/utils';
 import { Icon, Image, ModalContext, NetworkItem, SwList, SwModal, SwModalFuncProps } from '@subwallet/react-ui';
 import { SessionTypes } from '@walletconnect/types';
 import CN from 'classnames';
@@ -18,7 +18,7 @@ import React, { useCallback, useContext, useEffect, useMemo, useState } from 're
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 import { useNavigate } from 'react-router-dom';
-import styled, { useTheme } from 'styled-components';
+import styled from 'styled-components';
 
 interface ComponentProps {
   session: SessionTypes.Struct;
@@ -37,7 +37,6 @@ const Component: React.FC<ComponentProps> = (props) => {
   const { t } = useTranslation();
   const notification = useNotification();
   const navigate = useNavigate();
-  const { token } = useTheme() as Theme;
 
   const domain = useMemo(() => {
     try {
@@ -52,7 +51,7 @@ const Component: React.FC<ComponentProps> = (props) => {
   const { activeModal, inactiveModal } = useContext(ModalContext);
 
   const { chainInfoMap } = useSelector((state) => state.chainStore);
-  const { accounts } = useSelector((state) => state.accountState);
+  const accountProxies = useSelector((state) => state.accountState.accountProxies);
 
   const chains = useMemo((): WalletConnectChainInfo[] => {
     const chains = Object.values(namespaces).map((namespace) => namespace.chains || []).flat();
@@ -60,11 +59,11 @@ const Component: React.FC<ComponentProps> = (props) => {
     return chainsToWalletConnectChainInfos(chainInfoMap, chains);
   }, [namespaces, chainInfoMap]);
 
-  const accountItems = useMemo((): AbstractAddressJson[] => getWCAccountList(accounts, namespaces), [accounts, namespaces]);
+  const accountProxyItems = useMemo((): AccountProxy[] => getWCAccountProxyList(accountProxies, namespaces), [accountProxies, namespaces]);
 
   const modalProps = useMemo((): Partial<SwModalFuncProps> => ({
     id: disconnectModalId,
-    okText: t('Disconnect'),
+    okText: t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.disconnect'),
     okButtonProps: {
       icon: (
         <Icon
@@ -73,9 +72,9 @@ const Component: React.FC<ComponentProps> = (props) => {
         />
       )
     },
-    content: t('Once you disconnect, you will no longer see this connection on SubWallet and on your DApp.'),
-    subTitle: t('Are you sure you want to disconnect?'),
-    title: t('Disconnect'),
+    content: t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.disconnectWarning'),
+    subTitle: t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.areYouSureToDisconnect'),
+    title: t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.disconnect'),
     type: 'error',
     closable: true
   }), [t]);
@@ -93,7 +92,7 @@ const Component: React.FC<ComponentProps> = (props) => {
             console.log(e);
             notification({
               type: 'error',
-              message: t('Fail to disconnect')
+              message: t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.failToDisconnect')
             });
           });
       })
@@ -107,22 +106,22 @@ const Component: React.FC<ComponentProps> = (props) => {
     navigate('/wallet-connect/list');
   }, [navigate]);
 
-  const renderAccountItem = useCallback((item: AccountJson) => {
+  const renderAccountProxyItem = useCallback((item: AccountProxy) => {
     return (
-      <AccountItemWithName
-        accountName={item.name}
-        address={item.address}
-        avatarSize={token.sizeLG}
-        key={item.address}
+      <AccountProxyItem
+        accountProxy={item}
+        accountProxyName={item.name}
+        className={'__account-proxy-connect-item'}
+        key={item.id}
       />
     );
-  }, [token.sizeLG]);
+  }, []);
 
   const renderChainItem = useCallback((item: WalletConnectChainInfo) => {
     return (
       <NetworkItem
         key={item.slug}
-        name={item.chainInfo?.name || t('Unknown network ({{slug}})', { replace: { slug: item.slug } })}
+        name={item.chainInfo?.name || t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.unknownNetwork', { replace: { slug: item.slug } })}
         networkKey={item.slug}
         networkMainLogoShape='squircle'
         networkMainLogoSize={28}
@@ -133,8 +132,8 @@ const Component: React.FC<ComponentProps> = (props) => {
   const renderAccountEmpty = useCallback(() => {
     return (
       <EmptyList
-        emptyMessage={t('Your accounts will appear here.')}
-        emptyTitle={t('No account found')}
+        emptyMessage={t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.yourAccountsWillAppearHere')}
+        emptyTitle={t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.noAccountFound')}
         phosphorIcon={MagnifyingGlass}
       />
     );
@@ -166,12 +165,12 @@ const Component: React.FC<ComponentProps> = (props) => {
             weight='fill'
           />
         ),
-        children: t('Disconnect'),
+        children: t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.disconnect'),
         schema: 'danger',
         loading: loading,
         onClick: onDisconnect
       }}
-      title={t('WalletConnect')}
+      title={t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.walletConnect')}
     >
       <div className='body-container'>
         <MetaInfo
@@ -179,7 +178,7 @@ const Component: React.FC<ComponentProps> = (props) => {
         >
           <MetaInfo.Default
             className='dapp-info-container'
-            label={t('DApp')}
+            label={t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.dApp')}
           >
             <div className='dapp-info-content'>
               <Image
@@ -193,7 +192,7 @@ const Component: React.FC<ComponentProps> = (props) => {
           </MetaInfo.Default>
           <MetaInfo.Default
             className='network-container'
-            label={t('Network')}
+            label={t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.network')}
           >
             <div
               className='network-content'
@@ -201,7 +200,7 @@ const Component: React.FC<ComponentProps> = (props) => {
             >
               <WCNetworkAvatarGroup networks={chains} />
               <div className='network-name'>
-                {t('{{number}} network(s)', { replace: { number: chains.length } })}
+                {t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.numberNetworks', { replace: { number: chains.length } })}
               </div>
               <Icon
                 phosphorIcon={Info}
@@ -212,13 +211,12 @@ const Component: React.FC<ComponentProps> = (props) => {
           </MetaInfo.Default>
         </MetaInfo>
         <div className='total-account'>
-          {t('{{number}} account connected', { replace: { number: accountItems.length } })}
+          {t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.numberAccountConnected', { replace: { number: accountProxyItems.length } })}
         </div>
         <SwList.Section
           className='account-list'
-          displayRow
-          list={accountItems}
-          renderItem={renderAccountItem}
+          list={accountProxyItems}
+          renderItem={renderAccountProxyItem}
           renderWhenEmpty={renderAccountEmpty}
           rowGap='var(--row-gap)'
         />
@@ -226,7 +224,7 @@ const Component: React.FC<ComponentProps> = (props) => {
           className={CN(className, 'network-modal')}
           id={networkModalId}
           onCancel={closeNetworkModal}
-          title={t('Connected network')}
+          title={t('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.connectedNetwork')}
         >
           <SwList.Section
             className='network-list'
@@ -237,7 +235,7 @@ const Component: React.FC<ComponentProps> = (props) => {
             renderWhenEmpty={renderNetworkEmpty}
             rowGap='var(--row-gap)'
             searchFunction={searchFunction}
-            searchPlaceholder={t<string>('Network name')}
+            searchPlaceholder={t<string>('ui.WALLET_CONNECT.screen.WalletConnect.ConnectionDetail.networkName')}
           />
         </SwModal>
       </div>
@@ -346,6 +344,12 @@ const ConnectionDetail = styled(Wrapper)<Props>(({ theme: { token } }: Props) =>
 
       '.ant-sw-list-wrapper': {
         flexBasis: 'auto'
+      },
+
+      '.ant-sw-list': {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8
       }
     },
 
@@ -363,6 +367,15 @@ const ConnectionDetail = styled(Wrapper)<Props>(({ theme: { token } }: Props) =>
         flexDirection: 'column',
         display: 'flex'
       }
+    },
+
+    '.__account-proxy-connect-item .__item-middle-part': {
+      textWrap: 'nowrap',
+      textOverflow: 'ellipsis',
+      overflow: 'hidden',
+      fontWeight: 600,
+      fontSize: token.fontSizeHeading6,
+      lineHeight: token.lineHeightHeading6
     }
   };
 });

@@ -56,7 +56,10 @@ const _additionalEnv = {
   TRANSAK_TEST_MODE: JSON.stringify(false),
   BANXA_TEST_MODE: JSON.stringify(false),
   INFURA_API_KEY: JSON.stringify(process.env.INFURA_API_KEY),
-  INFURA_API_KEY_SECRET: JSON.stringify(process.env.INFURA_API_KEY_SECRET)
+  INFURA_API_KEY_SECRET: JSON.stringify(process.env.INFURA_API_KEY_SECRET),
+  SUBWALLET_API: JSON.stringify(process.env.SUBWALLET_API),
+  SW_EXTERNAL_SERVICES_API: JSON.stringify(process.env.SW_EXTERNAL_SERVICES_API),
+  BTC_SERVICE_TOKEN: JSON.stringify(process.env.BTC_SERVICE_TOKEN)
 };
 
 const createConfig = (entry, alias = {}, useSplitChunk = false) => {
@@ -153,7 +156,11 @@ const createConfig = (entry, alias = {}, useSplitChunk = false) => {
         filename: 'index.html',
         template: 'public/index.html',
         meta: { 'app-version': pkgJson.buildNumber }
-      })
+      }),
+      new webpack.NormalModuleReplacementPlugin(
+        /@emurgo\/cardano-serialization-lib-nodejs/,
+        '@emurgo/cardano-serialization-lib-browser'
+      )
     ],
     resolve: {
       alias: packages.reduce((alias, p) => ({
@@ -165,7 +172,7 @@ const createConfig = (entry, alias = {}, useSplitChunk = false) => {
       }),
       extensions: ['.js', '.mjs', '.jsx', '.ts', '.tsx'],
       fallback: {
-        crypto: require.resolve('crypto-browserify'),
+        crypto: false,
         path: require.resolve('path-browserify'),
         stream: require.resolve('stream-browserify'),
         os: require.resolve('os-browserify/browser'),

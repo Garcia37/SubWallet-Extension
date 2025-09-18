@@ -2,16 +2,24 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { TypedDataV1Field, typedSignatureHash } from '@metamask/eth-sig-util';
+import { BitcoinProviderError } from '@subwallet/extension-base/background/errors/BitcoinProviderError';
+import { CardanoProviderError } from '@subwallet/extension-base/background/errors/CardanoProviderError';
 import { EvmProviderError } from '@subwallet/extension-base/background/errors/EvmProviderError';
 import { TransactionError } from '@subwallet/extension-base/background/errors/TransactionError';
-import { BasicTxErrorType, ConfirmationType, ErrorValidation, EvmProviderErrorType, EvmSendTransactionParams, EvmSignatureRequest, EvmTransactionData } from '@subwallet/extension-base/background/KoniTypes';
-import { AccountJson } from '@subwallet/extension-base/background/types';
+import { AmountData, BitcoinProviderErrorType, BitcoinSendTransactionParams, BitcoinSendTransactionRequest, BitcoinSignatureRequest, BitcoinSignPsbtParams, BitcoinSignPsbtPayload, BitcoinSignPsbtRequest, CardanoProviderErrorType, CardanoSignatureRequest, ConfirmationType, ConfirmationTypeBitcoin, ConfirmationTypeCardano, ErrorValidation, EvmProviderErrorType, EvmSendTransactionParams, EvmSignatureRequest, EvmTransactionData } from '@subwallet/extension-base/background/KoniTypes';
+import { AccountAuthType } from '@subwallet/extension-base/background/types';
 import KoniState from '@subwallet/extension-base/koni/background/handlers/State';
-import { calculateGasFeeParams } from '@subwallet/extension-base/services/fee-service/utils';
+import { _isSubstrateEvmCompatibleChain } from '@subwallet/extension-base/services/chain-service/utils';
 import { AuthUrlInfo } from '@subwallet/extension-base/services/request-service/types';
-import { BN_ZERO, createPromiseHandler, isSameAddress, stripUrl, wait } from '@subwallet/extension-base/utils';
+import { BasicTxErrorType, EvmFeeInfo } from '@subwallet/extension-base/types';
+import { BN_ZERO, combineEthFee, createPromiseHandler, isSameAddress, reformatAddress, stripUrl, wait } from '@subwallet/extension-base/utils';
+import { validateAddressNetwork } from '@subwallet/extension-base/utils/cardano';
 import { isContractAddress, parseContractInput } from '@subwallet/extension-base/utils/eth/parseTransaction';
+import { getId } from '@subwallet/extension-base/utils/getId';
+import { isCardanoAddress, isCardanoBaseAddress, isCardanoRewardAddress, isSubstrateAddress } from '@subwallet/keyring';
 import { KeyringPair } from '@subwallet/keyring/types';
+import { getBitcoinAddressInfo } from '@subwallet/keyring/utils';
+import { isBitcoinAddress } from '@subwallet/keyring/utils/address/validate';
 import { keyring } from '@subwallet/ui-keyring';
 import { getSdkError } from '@walletconnect/utils';
 import BigN from 'bignumber.js';
@@ -20,20 +28,21 @@ import { t } from 'i18next';
 import Joi from 'joi';
 import { TransactionConfig } from 'web3-core';
 
-import { isString } from '@polkadot/util';
+import { isArray, isHex, isString } from '@polkadot/util';
 import { isEthereumAddress } from '@polkadot/util-crypto';
 
 export type ValidateStepFunction = (koni: KoniState, url: string, payload: PayloadValidated, topic?: string) => Promise<PayloadValidated>
-
+export type RequestAccountType = 'substrate' | 'evm' | 'ton' | 'cardano';
 export interface PayloadValidated {
   networkKey: string,
   address: string,
   pair?: KeyringPair,
   authInfo?: AuthUrlInfo,
+  type: AccountAuthType,
   method?: string,
   payloadAfterValidated: any,
   errorPosition?: 'dApp' | 'ui',
-  confirmationType?: ConfirmationType,
+  confirmationType?: ConfirmationType | ConfirmationTypeCardano | ConfirmationTypeBitcoin,
   errors: Error[]
 }
 
@@ -200,52 +209,52 @@ export async function generateValidationProcess (koni: KoniState, url: string, p
   return resultValidated;
 }
 
+function handleAuthError (payload: PayloadValidated, message: string, errorPosition: 'dApp' | 'ui', errors: Error[]): PayloadValidated {
+  payload.errorPosition = errorPosition;
+  errors.push(new Error(convertErrorMessage(message)[0]));
+
+  return payload;
+}
+
 export async function validationAuthMiddleware (koni: KoniState, url: string, payload: PayloadValidated): Promise<PayloadValidated> {
   const { address, errors } = payload;
 
   if (!address || !isString(address)) {
-    payload.errorPosition = 'dApp';
-    const [message] = convertErrorMessage('Not found address to sign');
-
-    errors.push(new Error(message));
+    return handleAuthError(payload, 'Not found address to sign', 'dApp', errors);
   } else {
     try {
       payload.pair = keyring.getPair(address);
 
       if (!payload.pair) {
-        payload.errorPosition = 'dApp';
-        const [message] = convertErrorMessage('Unable to find account');
-
-        errors.push(new Error(message));
+        return handleAuthError(payload, 'Unable to find account', 'dApp', errors);
       } else {
         const authList = await koni.getAuthList();
 
         const authInfo = authList[stripUrl(url)];
 
         if (!authInfo || !authInfo.isAllowed || !authInfo.isAllowedMap[payload.pair.address]) {
-          payload.errorPosition = 'dApp';
-          const [message] = convertErrorMessage('Account not in allowed list', '');
+          return handleAuthError(payload, 'Account not in allowed list', 'dApp', errors);
+        }
 
-          errors.push(new Error(message));
+        if (payload.pair.meta.noPublicKey) {
+          return handleAuthError(payload, t('bg.TRANSACTION.core.validation.request.accountNotSupportedForAction'), 'dApp', errors);
         }
 
         payload.authInfo = authInfo;
       }
     } catch (e) {
-      const [message] = convertErrorMessage((e as Error).message);
-
-      payload.errorPosition = 'dApp';
-      errors.push(new Error(message));
+      return handleAuthError(payload, (e as Error).message, 'dApp', errors);
     }
   }
 
   return payload;
 }
 
+// ====== EVM ======
 export async function validationConnectMiddleware (koni: KoniState, url: string, payload: PayloadValidated): Promise<PayloadValidated> {
   let currentChain: string | undefined;
   let autoActiveChain = false;
-  let { address, authInfo, errors, networkKey } = { ...payload };
+  let { address, authInfo, errors, networkKey, type } = { ...payload };
 
   const handleError = (message_: string) => {
     payload.errorPosition = 'ui';
@@ -257,8 +266,8 @@ export async function validationConnectMiddleware (koni: KoniState, url: string,
     errors.push(error);
   };
 
-  if (authInfo?.currentEvmNetworkKey) {
-    currentChain = authInfo?.currentEvmNetworkKey;
+  if (authInfo?.currentNetworkMap[type]) {
+    currentChain = authInfo?.currentNetworkMap[type];
   }
 
   if (authInfo?.isAllowed) {
@@ -327,7 +336,7 @@ export async function validationEvmDataTransactionMiddleware (koni: KoniState, u
   const errors: Error[] = payload.errors || [];
   let estimateGas = '';
   const transactionParams = payload.payloadAfterValidated as EvmSendTransactionParams;
-  const { address: fromAddress, networkKey, pair } = payload;
+  const { address: fromAddress, networkKey, pair: pair_ } = payload;
   const evmApi = koni.getEvmApi(networkKey || '');
   const web3 = evmApi?.api;
 
@@ -371,8 +380,30 @@ export async function validationEvmDataTransactionMiddleware (koni: KoniState, u
     handleError('the sender address must be the ethereum address type');
   }
 
-  if (transaction.to && !isEthereumAddress(transaction.to)) {
-    handleError('invalid recipient address');
+  const pair = pair_ || keyring.getPair(fromAddress);
+
+  if (!pair) {
+    handleError('Not found address to sign');
+  }
+
+  if (pair_?.meta.isSubstrateECDSA) {
+    handleError('Substrate account can not send this transaction');
+  }
+
+  const evmNetwork = koni.getChainInfo(networkKey || '');
+
+  if (transaction.to) {
+    if (!isEthereumAddress(transaction.to)) {
+      handleError('invalid recipient address');
+    } else {
+      try {
+        const pairTo = keyring.getPair(transaction.to);
+
+        if (pairTo && pairTo.meta.isSubstrateECDSA && !_isSubstrateEvmCompatibleChain(evmNetwork)) {
+          handleError('substrate account cannot receive this token');
+        }
+      } catch (e) {}
+    }
   }
 
   if (fromAddress === transaction.to) {
@@ -433,18 +464,26 @@ export async function validationEvmDataTransactionMiddleware (koni: KoniState, u
       estimateGas = new BigN(transactionParams.gasPrice).multipliedBy(transaction.gas).toFixed(0);
     } else {
       try {
-        const priority = await calculateGasFeeParams(evmApi, networkKey || '');
+        const gasLimit = transaction.gas || await evmApi.api.eth.estimateGas(transaction);
+        const id = getId();
+        const feeInfo = await koni.feeService.subscribeChainFee(id, networkKey, 'evm') as EvmFeeInfo;
+        const feeCombine = combineEthFee(feeInfo);
 
-        if (priority.baseGasFee) {
-          transaction.maxPriorityFeePerGas = priority.maxPriorityFeePerGas.toString();
-          transaction.maxFeePerGas = priority.maxFeePerGas.toString();
-
-          const maxFee = priority.maxFeePerGas;
-
-          estimateGas = maxFee.multipliedBy(transaction.gas).toFixed(0);
+        if (transaction.maxFeePerGas) {
+          estimateGas = new BigN(transaction.maxFeePerGas.toString()).multipliedBy(gasLimit).toFixed(0);
+        } else if (transaction.gasPrice) {
+          estimateGas = new BigN(transaction.gasPrice.toString()).multipliedBy(gasLimit).toFixed(0);
         } else {
-          transaction.gasPrice = priority.gasPrice;
-          estimateGas = new BigN(priority.gasPrice).multipliedBy(transaction.gas).toFixed(0);
+          if (feeCombine.maxFeePerGas) {
+            const maxFee = new BigN(feeCombine.maxFeePerGas); // TODO: Need review
+
+            estimateGas = maxFee.multipliedBy(gasLimit).toFixed(0);
+            transaction.maxFeePerGas = feeCombine.maxFeePerGas;
+            transaction.maxPriorityFeePerGas = feeCombine.maxPriorityFeePerGas;
+          } else if (feeCombine.gasPrice) {
+            estimateGas = new BigN((feeCombine.gasPrice || 0)).multipliedBy(gasLimit).toFixed(0);
+            transaction.gasPrice = feeCombine.gasPrice;
+          }
         }
       } catch (e) {
         handleError((e as Error).message);
@@ -465,9 +504,6 @@ export async function validationEvmDataTransactionMiddleware (koni: KoniState, u
     }
   }
 
-  const pair_ = pair || keyring.getPair(fromAddress);
-  const account: AccountJson = { address: fromAddress, ...pair_?.meta };
-
   try {
     transaction.nonce = await web3.eth.getTransactionCount(fromAddress);
   } catch (e) {
@@ -475,7 +511,6 @@ export async function validationEvmDataTransactionMiddleware (koni: KoniState, u
   }
 
   const hasError = (errors && errors.length > 0) || !networkKey;
-  const evmNetwork = koni.getChainInfo(networkKey || '');
   let isToContract = false;
   let hashPayload = '';
   let parseData: EvmTransactionData = '';
@@ -497,7 +532,7 @@ export async function validationEvmDataTransactionMiddleware (koni: KoniState, u
     errors,
     payloadAfterValidated: {
       ...transaction,
-      account,
+      address: fromAddress,
       estimateGas,
       hashPayload,
       isToContract,
@@ -530,7 +565,13 @@ export async function validationEvmSignMessageMiddleware (koni: KoniState, url: 
 
   const pair = pair_ || keyring.getPair(address);
 
-  const account: AccountJson = { address: pair.address, ...pair.meta };
+  if (!pair) {
+    handleError('Not found address to sign');
+  }
+
+  if (pair_?.meta.isSubstrateECDSA) {
+    handleError('Substrate account can not sign this message');
+  }
 
   if (method) {
     if (['eth_sign', 'personal_sign', 'eth_signTypedData', 'eth_signTypedData_v1', 'eth_signTypedData_v3', 'eth_signTypedData_v4'].indexOf(method) < 0) {
@@ -545,14 +586,14 @@ export async function validationEvmSignMessageMiddleware (koni: KoniState, url: 
           hashPayload = payload;
           break;
         case 'eth_sign':
-          if (!account.isExternal) {
+          if (!pair.meta.isExternal) {
             canSign = true;
           }
 
           break;
         case 'eth_signTypedData':
         case 'eth_signTypedData_v1':
-          if (!account.isExternal) {
+          if (!pair.meta.isExternal) {
             canSign = true;
           }
 
@@ -562,7 +603,7 @@ export async function validationEvmSignMessageMiddleware (koni: KoniState, url: 
 
         case 'eth_signTypedData_v3':
         case 'eth_signTypedData_v4':
-          if (!account.isExternal) {
+          if (!pair.meta.isExternal) {
             canSign = true;
           }
 
@@ -581,7 +622,7 @@ export async function validationEvmSignMessageMiddleware (koni: KoniState, url: 
   }
 
   const payloadAfterValidated: EvmSignatureRequest = {
-    account: account,
+    address,
     type: method || '',
     payload: payload as unknown,
     hashPayload: hashPayload,
@@ -614,7 +655,7 @@ export function validationAuthWCMiddleware (koni: KoniState, url: string, payloa
 
     if (isEthereumAddress(address)) {
       sessionAccounts = requestSession.namespaces.eip155.accounts?.map((account) => account.split(':')[2]) || sessionAccounts;
-    } else {
+    } else if (isSubstrateAddress(address)) {
       sessionAccounts = requestSession.namespaces.polkadot.accounts?.map((account) => account.split(':')[2]) || sessionAccounts;
     }
 
@@ -656,6 +697,425 @@ export function validationAuthWCMiddleware (koni: KoniState, url: string, payloa
   return promise;
 }
 
+export async function validationAuthCardanoMiddleware (koni: KoniState, url: string, payload: PayloadValidated): Promise<PayloadValidated> {
+  const authList = await koni.getAuthList();
+  const authInfo = authList[stripUrl(url)];
+  const { address, errors } = payload;
+
+  if (!authInfo || !authInfo.isAllowed) {
+    return handleAuthError(payload, 'Account not in allowed list', 'dApp', errors);
+  }
+
+  const currentAddress = authInfo.currentAccount;
+  const currentNetwork = authInfo.currentNetworkMap.cardano || 'cardano';
+  const currentNetworkId = +(currentNetwork === 'cardano');
+
+  if (!currentAddress || !authInfo.isAllowedMap[currentAddress]) {
+    return handleAuthError(payload, 'Unable to find account', 'dApp', errors);
+  }
+
+  const pair = keyring.getPair(currentAddress);
+
+  if (!pair) {
+    return handleAuthError(payload, 'Unable to find account', 'dApp', errors);
+  }
+
+  payload.pair = pair;
+
+  if (isCardanoBaseAddress(address)) {
+    if (!authInfo.isAllowedMap[address]) {
+      return handleAuthError(payload, 'Account not in allowed list', 'dApp', errors);
+    }
+
+    const addressByChainFormat = reformatAddress(currentAddress, currentNetworkId);
+
+    if (!isSameAddress(addressByChainFormat, address)) {
+      return handleAuthError(payload, 'Current account is changed', 'dApp', errors);
+    }
+  } else if (isCardanoRewardAddress(address)) {
+    const rewardAddress = pair.cardano.rewardAddress;
+    const addressByChainFormat = reformatAddress(rewardAddress, currentNetworkId);
+
+    if (!isSameAddress(addressByChainFormat, address)) {
+      return handleAuthError(payload, 'Current account is changed', 'dApp', errors);
+    }
+  }
+
+  return payload;
+}
+
+// ====== EVM ======
+
+// ====== Cardano ======
+
+export async function validationCardanoSignDataMiddleware (koni: KoniState, url: string, payload_: PayloadValidated): Promise<PayloadValidated> {
+  const { address, authInfo, errors, pair: pair_, type } = payload_;
+  const payload = payload_.payloadAfterValidated as DataMessageParam;
+  const { promise, resolve } = createPromiseHandler<PayloadValidated>();
+  let canSign = false;
+
+  const handleError = (message_: string) => {
+    payload_.errorPosition = 'ui';
+    payload_.confirmationType = 'cardanoSignatureRequest';
+    const [message, name] = convertErrorMessage(message_);
+    const error = new CardanoProviderError(CardanoProviderErrorType.INVALID_REQUEST, message, undefined, name);
+
+    console.error(error);
+    errors.push(error);
+  };
+
+  if (address === '' || !payload) {
+    handleError('Not found address or payload to sign');
+  }
+
+  if (!isCardanoAddress(address)) {
+    handleError('Not found cardano address');
+  }
+
+  const currentCardanoNetwork = koni.requestService.getDAppChainInfo({
+    autoActive: true,
+    accessType: 'cardano',
+    defaultChain: authInfo?.currentNetworkMap[type],
+    url
+  });
+
+  if (!validateAddressNetwork(address, currentCardanoNetwork)) {
+    handleError('Invalid address network');
+  }
+
+  const pair = pair_ || keyring.getPair(address);
+
+  if (!pair?.meta.isExtneral) {
+    canSign = true;
+  }
+
+  const payloadAfterValidated: CardanoSignatureRequest = {
+    address,
+    payload: payload,
+    currentAddress: authInfo?.currentAccount as string,
+    hashPayload: payload as string,
+    canSign: canSign,
+    id: ''
+  };
+
+  resolve(
+    {
+      ...payload_,
+      errors,
+      payloadAfterValidated
+    }
+  );
+
+  return promise;
+}
+
+// ====== Cardano ======
+
+// ====== Bitcoin ======
+
+export async function validationBitcoinConnectMiddleware (koni: KoniState, url: string, payload: PayloadValidated): Promise<PayloadValidated> {
+  const { authInfo, errors, networkKey } = payload;
+  let autoActiveChain = false;
+
+  const handleError = (message_: string) => {
+    payload.errorPosition = 'ui';
+    payload.confirmationType = 'errorConnectNetwork';
+    const [message, name] = convertErrorMessage(message_);
+    const error = new TransactionError(BasicTxErrorType.INVALID_PARAMS, message, undefined, name);
+
+    console.error(error);
+    errors.push(error);
+  };
+
+  if (url && authInfo) {
+    if (authInfo?.isAllowed) {
+      autoActiveChain = true;
+    }
+  }
+
+  const currentBitcoinNetwork = koni.requestService.getDAppChainInfo({
+    autoActive: autoActiveChain,
+    accessType: 'bitcoin',
+    defaultChain: networkKey,
+    url
+  });
+
+  if (currentBitcoinNetwork) {
+    const chainStatus = koni.getChainStateByKey(networkKey);
+    const chainInfo = koni.getChainInfo(networkKey);
+
+    if (!chainStatus.active) {
+      try {
+        await koni.chainService.enableChain(networkKey);
+      } catch (e) {
+        handleError('Can not active chain: ' + chainInfo.name);
+      }
+    }
+  } else {
+    handleError('This network is currently not supported');
+  }
+
+  return {
+    ...payload,
+    networkKey: currentBitcoinNetwork?.slug || networkKey,
+    errors
+  };
+}
+
+export async function validationBitcoinSignMessageMiddleware (koni: KoniState, url: string, payload_: PayloadValidated): Promise<PayloadValidated> {
+  const { address, errors, pair: pair_ } = payload_;
+  const message = payload_.payloadAfterValidated as string;
+  const { promise, resolve } = createPromiseHandler<PayloadValidated>();
+
+  const handleError = (message_: string) => {
+    payload_.errorPosition = 'ui';
+    payload_.confirmationType = 'bitcoinSignatureRequest';
+    const [message, name] = convertErrorMessage(message_);
+    const error = new BitcoinProviderError(BitcoinProviderErrorType.INVALID_PARAMS, message, undefined, name);
+
+    console.error(error);
+    errors.push(error);
+  };
+
+  if (address === '' || !message) {
+    handleError(t('bg.TRANSACTION.core.validation.request.notFoundAddressOrPayload'));
+  }
+
+  if (!isBitcoinAddress(address)) {
+    handleError(t('bg.TRANSACTION.core.validation.request.invalidBitcoinAddress'));
+  }
+
+  const pair = pair_ || keyring.getPair(address);
+
+  if (!pair) {
+    handleError(t('bg.TRANSACTION.core.validation.request.unableToFindAccount'));
+  }
+
+  const hashPayload = '';
+  let canSign = false;
+
+  if (!pair?.meta.isExtneral) {
+    canSign = true;
+  }
+
+  const payloadAfterValidated: BitcoinSignatureRequest = {
+    address,
+    payload: message as unknown,
+    payloadJson: message,
+    hashPayload,
+    canSign,
+    id: ''
+  };
+
+  resolve(
+    {
+      ...payload_,
+      errors,
+      payloadAfterValidated
+    }
+  );
+
+  return promise;
+}
+
+export async function validationBitcoinSignPsbtMiddleware (koni: KoniState, url: string, payload_: PayloadValidated): Promise<PayloadValidated> {
+  const { errors, networkKey, pair: pair_ } = payload_;
+  const psbtParams = payload_.payloadAfterValidated as BitcoinSignPsbtParams;
+  const { address, allowedSighash, autoFinalized, broadcast, psbt, signAtIndex } = payload_.payloadAfterValidated as BitcoinSignPsbtParams;
+  const { promise, resolve } = createPromiseHandler<PayloadValidated>();
+
+  const handleError = (message_: string) => {
+    payload_.errorPosition = 'ui';
+    payload_.confirmationType = 'bitcoinSignPsbtRequest';
+    const [message, name] = convertErrorMessage(message_);
+    const error = new BitcoinProviderError(BitcoinProviderErrorType.INVALID_PARAMS, message, undefined, name);
+
+    console.error(error);
+    errors.push(error);
+  };
+
+  if (!(psbtParams.network === 'mainnet' || psbtParams.network === 'testnet')) {
+    handleError(t('bg.TRANSACTION.core.validation.request.networkMustBeMainnetOrTestnet'));
+  }
+
+  if (!networkKey) {
+    handleError(t('bg.TRANSACTION.core.validation.request.networkUnavailableSwitchOrAdd'));
+  }
+
+  if (!psbt || !address) {
+    handleError(t('bg.TRANSACTION.core.validation.request.notFoundPayloadToSign'));
+  }
+
+  if (!isHex(`0x${psbt}`)) {
+    handleError(t('bg.TRANSACTION.core.validation.request.psbtMustBeHexEncoded'));
+  }
+
+  if (!isBitcoinAddress(address)) {
+    handleError(t('bg.TRANSACTION.core.validation.request.notFoundAddress'));
+  }
+
+  const addressInfo = getBitcoinAddressInfo(address);
+
+  if (psbtParams.network !== addressInfo.network) {
+    handleError(t('bg.TRANSACTION.core.validation.request.accountOrNetworkNotMatched'));
+  }
+
+  const payload = {
+    broadcast: !!broadcast,
+    network: networkKey,
+    signAtIndex: isArray(signAtIndex) && signAtIndex.length === 0 ? undefined : signAtIndex,
+    address,
+    allowedSighash,
+    autoFinalized
+  } as BitcoinSignPsbtPayload;
+  const hashPayload = '';
+  const pair = pair_ || keyring.getPair(address);
+  const canSign = !pair?.meta.isExternal;
+
+  const signPayload: BitcoinSignPsbtRequest = {
+    address,
+    payload,
+    hashPayload,
+    canSign
+  };
+
+  resolve(
+    {
+      ...payload_,
+      errors,
+      payloadAfterValidated: signPayload
+    }
+  );
+
+  return promise;
+}
+
+export async function validationBitcoinSendTransactionMiddleware (koni: KoniState, url: string, payload_: PayloadValidated): Promise<PayloadValidated> {
+  const { address, errors, networkKey, pair: pair_ } = payload_;
+  const transactionParams = payload_.payloadAfterValidated as BitcoinSendTransactionParams;
+  const { promise, resolve } = createPromiseHandler<PayloadValidated>();
+  const senderAccountInfo = getBitcoinAddressInfo(address);
+
+  const handleError = (message_: string) => {
+    payload_.errorPosition = 'ui';
+    payload_.confirmationType = 'bitcoinSendTransactionRequestAfterConfirmation';
+    const [message, name] = convertErrorMessage(message_);
+    const error = new BitcoinProviderError(BitcoinProviderErrorType.INVALID_PARAMS, message, undefined, name);
+
+    console.error(error);
+    errors.push(error);
+  };
+
+  const autoFormatNumber = (val: string | number): string => {
+    if (typeof val === 'string' && val.startsWith('0x')) {
+      return new BigN(val.replace('0x', ''), 16).toString();
+    } else if (typeof val === 'number') {
+      return val.toString();
+    }
+
+    return val;
+  };
+
+  if (transactionParams.network !== senderAccountInfo.network) {
+    handleError(t('bg.TRANSACTION.core.validation.request.accountOrNetworkNotMatched'));
+  }
+
+  if (!transactionParams.recipients?.length) {
+    handleError(t('bg.TRANSACTION.core.validation.request.provideRecipientAndAmount'));
+  }
+
+  if (transactionParams.recipients?.length > 1) {
+    handleError(t('bg.TRANSACTION.core.validation.request.multipleRecipientsNotSupported'));
+  }
+
+  if (transactionParams.recipients.filter(({ address, amount }) => !address || !amount).length > 0) {
+    throw new BitcoinProviderError(BitcoinProviderErrorType.INVALID_PARAMS);
+  }
+
+  const recipientAccountInfo = getBitcoinAddressInfo(transactionParams.recipients[0].address);
+
+  if (recipientAccountInfo.network !== transactionParams.network) {
+    handleError(t('bg.TRANSACTION.core.validation.request.invalidRecipientAddress'));
+  }
+
+  if (transactionParams.recipients.length !== 1) {
+    handleError(t('bg.TRANSACTION.core.validation.request.receivingAddressMustBeSingleAccount'));
+  }
+
+  if (address === transactionParams.recipients[0].address) {
+    handleError(t('bg.TRANSACTION.core.validation.request.mustBeDifferentFromSendingAddress'));
+  }
+
+  const pair = pair_ || keyring.getPair(address);
+
+  if (!pair) {
+    handleError(t('bg.TRANSACTION.core.validation.request.unableToFindAccountError'));
+  }
+
+  const tokenInfo = koni.getNativeTokenInfo(networkKey);
+  let freeBalance: AmountData = {
+    decimals: 0,
+    symbol: 'BTC',
+    value: '0'
+  };
+
+  let totalValue = new BigN('0');
+
+  try {
+    freeBalance = await koni.balanceService.getTransferableBalance(address, networkKey, tokenInfo.slug);
+  } catch (e) {
+    const message = (e as Error).message;
+
+    if (message.toLowerCase().includes(t('bg.TRANSACTION.core.validation.request.pleaseEnableNetwork'))) {
+      const chainInfo = koni.chainService.getChainInfoByKey(networkKey);
+
+      payload_.errorPosition = 'ui';
+      payload_.confirmationType = 'bitcoinSendTransactionRequestAfterConfirmation';
+      const [message, name] = [t('bg.TRANSACTION.core.validation.request.enableChainOnExtension', { replace: { chain: chainInfo.name } }), t('bg.TRANSACTION.core.validation.request.networkNotEnabled')];
+      const error = new BitcoinProviderError(BitcoinProviderErrorType.INVALID_PARAMS, message, undefined, name);
+
+      console.error(error);
+      errors.push(error);
+    } else {
+      handleError(message);
+    }
+  }
+
+  const to = transactionParams.recipients.map((value) => {
+    const amount = autoFormatNumber(value.amount);
+
+    totalValue = totalValue.plus(amount);
+
+    return {
+      ...value,
+      amount
+    };
+  });
+
+  if (new BigN(freeBalance.value).lte(totalValue)) {
+    handleError(t('bg.TRANSACTION.core.validation.request.insufficientBalanceError'));
+  }
+
+  const sendTransactionRequest = {
+    networkKey,
+    address,
+    canSign: !pair.meta.isExternal,
+    value: totalValue.toString(),
+    to,
+    tokenSlug: tokenInfo.slug
+  } as BitcoinSendTransactionRequest;
+
+  resolve({
+    ...payload_,
+    errors,
+    payloadAfterValidated: sendTransactionRequest
+  });
+
+  return promise;
+}
+
+// ====== Bitcoin ======
+
 export function convertErrorMessage (message_: string, name?: string): string[] {
   const message = message_.toLowerCase();
 
@@ -665,13 +1125,14 @@ export function convertErrorMessage (message_: string, name?: string): string[] 
     message.includes('connection not open') ||
     message.includes('connection timeout') ||
     message.includes('can not active chain') ||
-    message.includes('invalid json rpc')
+    message.includes('invalid json rpc') ||
+    message.includes('internet connection')
   ) {
-    return [t('Re-enable the network or change RPC on the extension and try again'), t('Unstable network connection')];
+    return [t('bg.TRANSACTION.core.validation.request.reEnableOrChangeRpc'), t('bg.TRANSACTION.core.validation.request.unstableNetworkConnection')];
   }
 
   if (message.includes('network is currently not supported')) {
-    return [t('This network is not yet supported on SubWallet. (Import the network)[https://docs.subwallet.app/main/extension-user-guide/customize-your-networks#import-networks] on SubWallet and try again'), t('Network not supported')];
+    return [t('bg.TRANSACTION.core.validation.request.networkNotSupportedImport'), t('bg.TRANSACTION.core.validation.request.networkNotSupported')];
   }
 
   // Authentication
@@ -687,44 +1148,60 @@ export function convertErrorMessage (message_: string, name?: string): string[] 
   // Transaction
 
   if (message.includes('recipient address not found')) {
-    return [t('Enter recipient address and try again'), t('Recipient address not found')];
+    return [t('bg.TRANSACTION.core.validation.request.enterRecipientAddress'), t('bg.TRANSACTION.core.validation.request.recipientAddressNotFound')];
   }
 
   if (message.includes('is not a number') || message.includes('invalid number value') || message.includes('invalid bignumberish')) {
-    return [t('Amount must be an integer. Enter an integer and try again'), t('Invalid amount')];
+    return [t('bg.TRANSACTION.core.validation.request.amountMustBeInteger'), t('bg.TRANSACTION.core.validation.request.invalidAmount')];
   }
 
   if (message.includes('calculate estimate gas fee') || message.includes('invalidcode')) {
-    return [t('Unable to calculate estimated gas for this transaction. Try again or contact support at agent@subwallet.app'), t('Gas calculation error')];
+    return [t('bg.TRANSACTION.core.validation.request.gasCalculationError'), t('bg.TRANSACTION.core.validation.request.gasCalculationErrorTitle')];
   }
 
   if (message.includes('invalid recipient address')) {
-    return [t('Make sure the recipient address is valid and in the same type as the sender address, then try again'), t('Invalid recipient address')];
+    return [t('bg.TRANSACTION.core.validation.request.recipientAddressTypeMismatch'), t('bg.TRANSACTION.core.validation.request.invalidRecipientAddressError')];
   }
 
   if (message.includes('must be different from sending address')) {
-    return [t('The recipient address must be different from the sender address'), t('Invalid recipient address')];
+    return [t('bg.TRANSACTION.core.validation.request.recipientMustBeDifferentFromSender'), t('bg.TRANSACTION.core.validation.request.invalidRecipientAddressError')];
   }
 
   if (message.includes('the sender address must be the ethereum address type')) {
-    return [t('The sender address must be the ethereum address type'), t('Invalid address type')];
+    return [t('bg.TRANSACTION.core.validation.request.senderMustBeEthereumAddress'), t('bg.TRANSACTION.core.validation.request.invalidAddressType')];
+  }
+
+  if (message.includes('the sender address must be the ethereum address type')) {
+    return [t('bg.TRANSACTION.core.validation.request.senderMustBeBitcoinAddress'), t('bg.TRANSACTION.core.validation.request.invalidAddressType')];
+  }
+
+  if (message.includes('account or the network is not matched')) {
+    return [t('bg.TRANSACTION.core.validation.request.accountDoesNotMatchNetwork'), t('bg.TRANSACTION.core.validation.request.invalidAddressType')];
+  }
+
+  if (message.includes('receiving address must be a single account')) {
+    return [t('bg.TRANSACTION.core.validation.request.receivingAddressMustBeSingle'), t('bg.TRANSACTION.core.validation.request.invalidRecipientAddressError')];
   }
 
   if (message.includes('insufficient balance') || message.includes('insufficient funds')) {
-    return [t('Insufficient balance on the sender address. Top up your balance and try again'), t('Unable to sign transaction')];
+    return [t('bg.TRANSACTION.core.validation.request.insufficientSenderBalance'), t('bg.TRANSACTION.core.validation.request.unableToSignTransaction')];
+  }
+
+  if (message.includes('substrate') && message.includes('receive this token')) {
+    return [t('bg.TRANSACTION.core.validation.request.recipientLedgerEvmNotSupported'), t('bg.TRANSACTION.core.validation.request.invalidAccountType')];
   }
 
   // Sign Message
   if (message.includes('not found address or payload to sign')) {
-    return [t('An error occurred when signing this request. Try again or contact support at agent@subwallet.app'), t('Unable to sign')];
+    return [t('bg.TRANSACTION.core.validation.request.errorSigningRequest'), t('bg.TRANSACTION.core.validation.request.unableToSign')];
   }
 
   if (message.includes('unsupported method') || message.includes('unsupported action')) {
-    return [t('This sign method is not supported by SubWallet. Try again or contact support at agent@subwallet.app'), t('Method not supported')];
+    return [t('bg.TRANSACTION.core.validation.request.signMethodNotSupported'), t('bg.TRANSACTION.core.validation.request.methodNotSupported')];
   }
 
   if (message.includes('eip712 typed data') || message.includes('invalid message')) {
-    return [t('An error occurred when attempting to sign this request. Contact support at email: agent@subwallet.app'), t('Unable to sign')];
+    return [t('bg.TRANSACTION.core.validation.request.errorAttemptingToSign'), t('bg.TRANSACTION.core.validation.request.unableToSign')];
   }
 
   return [message, name || 'Error'];

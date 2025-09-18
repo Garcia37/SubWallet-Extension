@@ -5,9 +5,10 @@ import { _ChainAsset } from '@subwallet/chain-list/types';
 import { calculateReward } from '@subwallet/extension-base/services/earning-service/utils';
 import { NormalYieldPoolStatistic, YieldCompoundingPeriod, YieldPoolInfo, YieldPoolType } from '@subwallet/extension-base/types';
 import { CollapsiblePanel, MetaInfo } from '@subwallet/extension-koni-ui/components';
-import { useTranslation } from '@subwallet/extension-koni-ui/hooks';
-import { getUnstakingPeriod } from '@subwallet/extension-koni-ui/Popup/Transaction/helper';
+import { useCreateGetSubnetStakingTokenName, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { getEarningTimeText } from '@subwallet/extension-koni-ui/utils';
+import { Logo } from '@subwallet/react-ui';
 import CN from 'classnames';
 import React, { useMemo } from 'react';
 import styled from 'styled-components';
@@ -36,11 +37,18 @@ function Component ({ className, inputAsset, poolInfo }: Props) {
       return undefined;
     }
   }, [poolInfo.statistic]);
+  const isSubnetStaking = useMemo(() => [YieldPoolType.SUBNET_STAKING].includes(poolInfo.type), [poolInfo.type]);
+
+  const getSubnetStakingTokenName = useCreateGetSubnetStakingTokenName();
+
+  const subnetToken = useMemo(() => {
+    return getSubnetStakingTokenName(poolInfo.chain, poolInfo.metadata.subnetData?.netuid || 0);
+  }, [getSubnetStakingTokenName, poolInfo.chain, poolInfo.metadata.subnetData?.netuid]);
 
   return (
     <CollapsiblePanel
       className={CN(className)}
-      title={t('Earning info')}
+      title={t('ui.EARNING.screen.EarningPositionDetail.EarningInfo.earningInfo')}
     >
       <MetaInfo
         labelColorScheme='gray'
@@ -48,15 +56,33 @@ function Component ({ className, inputAsset, poolInfo }: Props) {
         spaceSize='sm'
         valueColorScheme='light'
       >
-        <MetaInfo.Chain
-          chain={poolInfo.chain}
-          label={t('Network')}
-          valueColorSchema='gray'
-        />
+        {!isSubnetStaking
+          ? (
+            <MetaInfo.Chain
+              chain={poolInfo.chain}
+              label={t('ui.EARNING.screen.EarningPositionDetail.EarningInfo.network')}
+            />
+          )
+          : (
+            <MetaInfo.Default
+              label={t('ui.EARNING.screen.EarningPositionDetail.EarningInfo.subnet')}
+            >
+              <div className='__subnet-wrapper'>
+                <Logo
+                  className='__item-logo'
+                  isShowSubLogo={false}
+                  network={poolInfo.chain}
+                  size={24}
+                  token={subnetToken}
+                />
+                <span className='chain-name'>{poolInfo.metadata.shortName}</span>
+              </div>
+            </MetaInfo.Default>
+          )}
         {totalApy !== undefined && (
           <MetaInfo.Number
-            label={t('Estimated earnings')}
-            suffix={'% ' + t('per year')}
+            label={t('ui.EARNING.screen.EarningPositionDetail.EarningInfo.estimatedEarnings')}
+            suffix={'% ' + t('ui.EARNING.screen.EarningPositionDetail.EarningInfo.perYear')}
             value={totalApy}
             valueColorSchema='even-odd'
           />
@@ -64,15 +90,15 @@ function Component ({ className, inputAsset, poolInfo }: Props) {
 
         <MetaInfo.Number
           decimals={inputAsset?.decimals || 0}
-          label={t('Minimum active stake')}
+          label={t('ui.EARNING.screen.EarningPositionDetail.EarningInfo.minimumActiveStake')}
           suffix={inputAsset?.symbol}
           value={poolInfo.statistic?.earningThreshold.join || '0'}
           valueColorSchema='even-odd'
         />
         {unstakePeriod !== undefined && (
-          <MetaInfo.Default label={t('Unstaking period')}>
-            {poolInfo.type === YieldPoolType.LIQUID_STAKING && <span className={'__label'}>Up to</span>}
-            {getUnstakingPeriod(t, unstakePeriod)}
+          <MetaInfo.Default label={t('ui.EARNING.screen.EarningPositionDetail.EarningInfo.unstakingPeriod')}>
+            {(poolInfo.type === YieldPoolType.LIQUID_STAKING || poolInfo.type === YieldPoolType.SUBNET_STAKING) && <span className={'__label'}>Up to</span>}
+            {getEarningTimeText(t, unstakePeriod)}
           </MetaInfo.Default>
         )}
       </MetaInfo>
@@ -83,6 +109,11 @@ function Component ({ className, inputAsset, poolInfo }: Props) {
 export const EarningInfoPart = styled(Component)<Props>(({ theme: { token } }: Props) => ({
   '.__label': {
     paddingRight: token.paddingXXS
+  },
+  '.__subnet-wrapper': {
+    display: 'flex',
+    alignItems: 'center',
+    gap: token.sizeXS,
+    minWidth: 0
   }
-
 }));

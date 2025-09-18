@@ -1,5 +1,6 @@
 ## SubWallet Extension
 Our SubWallet is forked from polkadot-js/extension. We aim to adding more features while being able to rebase the polkadot-js origin at any time.
+
 ## Main Concept
 ![Main Concept](https://github.com/Koniverse/Subwallet-V2/wiki/images/ExtensionConcept.png)
 The extension is compiled from folder `packages/extension-koni`
@@ -30,7 +31,7 @@ All data requests must be called and processed in the background. Extension Page
 
 ## Add an API
 - API is define in folder `packages/extension-koni-base/src/api`
-  - Add new file depend on types of API
+  - Add new file depend on types of API.
   - Simple API can be defined in function, more complicated API should define in Object.
 
 ## Add a store

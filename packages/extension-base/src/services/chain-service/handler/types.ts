@@ -29,6 +29,7 @@ export interface _ApiOptions {
   metadata?: MetadataItem,
   onUpdateStatus?: (status: _ChainConnectionStatus) => void,
   externalApiPromise?: ApiPromise
+  isTestnet?: boolean
 }
 
 export enum _CHAIN_VALIDATION_ERROR {
@@ -39,5 +40,6 @@ export enum _CHAIN_VALIDATION_ERROR {
   INVALID_PROVIDER = 'invalidProvider',
   NONE = 'none',
   CONNECTION_FAILURE = 'connectionFailure',
-  PROVIDER_NOT_SAME_CHAIN = 'providerNotSameChain'
+  PROVIDER_NOT_SAME_CHAIN = 'providerNotSameChain',
+  UNSUPPORTED_CHAIN_CANNOT_ADD = 'unsupportedChainCannotAdd'
 }

@@ -2,19 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { EvmSendTransactionRequest, EvmTransactionArg } from '@subwallet/extension-base/background/KoniTypes';
-import { AccountJson } from '@subwallet/extension-base/background/types';
 import MetaInfo from '@subwallet/extension-koni-ui/components/MetaInfo/MetaInfo';
 import useGetAccountByAddress from '@subwallet/extension-koni-ui/hooks/account/useGetAccountByAddress';
 import useGetChainInfoByChainId from '@subwallet/extension-koni-ui/hooks/chain/useGetChainInfoByChainId';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
 import BigN from 'bignumber.js';
+import CN from 'classnames';
 import React, { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import styled from 'styled-components';
 
 interface Props extends ThemeProps {
   request: EvmSendTransactionRequest;
-  account: AccountJson;
+  address: string;
+  accountName?: string;
 }
 
 const convertToBigN = (num: EvmSendTransactionRequest['value']): string | number | undefined => {
@@ -26,7 +27,7 @@ const convertToBigN = (num: EvmSendTransactionRequest['value']): string | number
 };
 
 const Component: React.FC<Props> = (props: Props) => {
-  const { account, className, request } = props;
+  const { accountName, address, className, request } = props;
   const { chainId } = request;
 
   const recipient = useGetAccountByAddress(request.to);
@@ -74,14 +75,14 @@ const Component: React.FC<Props> = (props: Props) => {
       <>
         <MetaInfo.Default
           className='method-name'
-          label={t('Method')}
+          label={t('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.method')}
           labelAlign='top'
         >
           {data.methodName}
         </MetaInfo.Default>
         <MetaInfo.Data
           className='arg-container'
-          label={t('Arguments')}
+          label={t('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.arguments')}
         >
           {
             data.args.map((value) => handlerRenderArg(value, ''))
@@ -98,13 +99,13 @@ const Component: React.FC<Props> = (props: Props) => {
           ? (
             <MetaInfo.Chain
               chain={chainInfo.slug}
-              label={t<string>('Network')}
+              label={t<string>('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.network')}
             />
           )
           : chainId !== undefined
             ? (
               <MetaInfo.Default
-                label={t<string>('Chain id')}
+                label={t<string>('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.chainId')}
               >
                 {chainId}
               </MetaInfo.Default>
@@ -112,19 +113,22 @@ const Component: React.FC<Props> = (props: Props) => {
             : null
       }
       <MetaInfo.Transfer
+        className={CN('meta-info-transfer', {
+          '-no-account-name-item': !recipient?.name || !accountName
+        })}
         recipientAddress={recipient?.address || request.to || ''}
-        recipientLabel={t('To')}
+        recipientLabel={t('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.to')}
         recipientName={recipient?.name || ''}
-        senderAddress={account.address}
-        senderLabel={t('From')}
-        senderName={account.name}
+        senderAddress={address}
+        senderLabel={t('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.from')}
+        senderName={accountName || ''}
       />
       {
         (!request.isToContract || amount !== 0) &&
         (
           <MetaInfo.Number
             decimals={chainInfo?.evmInfo?.decimals}
-            label={t('Amount')}
+            label={t('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.amount')}
             suffix={chainInfo?.evmInfo?.symbol}
             value={amount}
           />
@@ -132,7 +136,7 @@ const Component: React.FC<Props> = (props: Props) => {
       }
       <MetaInfo.Number
         decimals={chainInfo?.evmInfo?.decimals}
-        label={t('Estimate gas')}
+        label={t('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.estimateGas')}
         suffix={chainInfo?.evmInfo?.symbol}
         value={request.estimateGas}
       />
@@ -140,7 +144,7 @@ const Component: React.FC<Props> = (props: Props) => {
       {
         (request.data && request.data !== '0x') &&
           (
-            <MetaInfo.Data label={t('Hex data')}>
+            <MetaInfo.Data label={t('ui.TRANSACTION.Confirmations.Detail.Evm.Transaction.hexData')}>
               <details>
                 <summary>{request.data}</summary>
               </details>
@@ -153,12 +157,6 @@ const Component: React.FC<Props> = (props: Props) => {
 
 const EvmTransactionDetail = styled(Component)<Props>(({ theme: { token } }: Props) => {
   return {
-    '.__chain-item, .__status-item, .__account-item': {
-      display: 'flex',
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: token.sizeXS
-    },
 
     '.__label': {
       fontFamily: token.fontFamily,
@@ -181,6 +179,12 @@ const EvmTransactionDetail = styled(Component)<Props>(({ theme: { token } }: Pro
           wordBreak: 'break-word'
         }
       }
+    },
+
+    '.meta-info-transfer.-no-account-name-item .__account-item ': {
+      minHeight: 44,
+      display: 'flex',
+      alignItems: 'flex-start'
     },
 
     details: {

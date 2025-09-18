@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { NotificationType } from '@subwallet/extension-base/background/KoniTypes';
-import { AccountJson } from '@subwallet/extension-base/background/types';
-import { ButtonSchema } from '@subwallet/react-ui/es/button/button';
+import { AccountJson } from '@subwallet/extension-base/types';
+import { type ButtonProps, ButtonSchema } from '@subwallet/react-ui/es/button/button';
 import { Icon as _PhosphorIcon, IconProps } from 'phosphor-react';
 import React from 'react';
 
@@ -22,13 +22,18 @@ export type AlertDialogButtonProps = {
 }
 
 export type AlertDialogProps = {
-  title: string,
-  type?: NotificationType,
-  closable?: boolean,
-  content: React.ReactNode,
-  cancelButton?: AlertDialogButtonProps,
-  okButton: AlertDialogButtonProps,
-  onCancel?: VoidFunction
+  title: string;
+  subtitle?: React.ReactNode;
+  type?: NotificationType;
+  closable?: boolean;
+  content: React.ReactNode;
+  cancelButton?: AlertDialogButtonProps;
+  okButton: AlertDialogButtonProps;
+  onCancel?: VoidFunction;
+  okLoading?: boolean;
+  cancelDisabled?: boolean;
+  rightIconProps?: ButtonProps;
+  maskClosable?: boolean;
 };
 
 export type AccountType = 'ALL' | 'ETHEREUM' | 'SUBSTRATE';
@@ -138,3 +143,4 @@ export * from './scanner';
 export * from './staking';
 export * from './transaction';
 export * from './walletConnect';
+export * from './component';

@@ -1,8 +1,9 @@
 // Copyright 2019-2022 @subwallet/extension-base
 // SPDX-License-Identifier: Apache-2.0
 
-import { BaseRequestSign, InternalRequestSign } from '@subwallet/extension-base/background/KoniTypes';
+import { ExtrinsicType } from '@subwallet/extension-base/background/KoniTypes';
 
+import { BaseRequestSign, InternalRequestSign } from '../../transaction';
 import { BasePoolInfo, UnstakingInfo, YieldPoolInfo } from '../info';
 
 /**
@@ -15,7 +16,7 @@ import { BasePoolInfo, UnstakingInfo, YieldPoolInfo } from '../info';
  * @prop {boolean} fastLeave - Fast leave pool (swap token)
  * @prop {YieldPoolInfo} poolInfo - Pool's info - use for create history
  * */
-export interface YieldLeaveParams extends BaseRequestSign {
+export interface BaseYieldLeaveParams extends BaseRequestSign {
   /** Request account */
   address: string;
   /** Amount token want to leave */
@@ -29,6 +30,14 @@ export interface YieldLeaveParams extends BaseRequestSign {
   /** Pool's info - use for create history */
   poolInfo: YieldPoolInfo;
 }
+export interface SubnetYieldLeaveParams {
+  /** Slippage (subnet staking) */
+  slippage?: number;
+  /** stakingFee (subnet staking) */
+  stakingFee?: string;
+}
+
+export type YieldLeaveParams = BaseYieldLeaveParams & Partial<SubnetYieldLeaveParams>;
 
 export type RequestYieldLeave = InternalRequestSign<YieldLeaveParams>;
 
@@ -96,3 +105,10 @@ export interface StakeClaimRewardParams extends BaseRequestSign {
 }
 
 export type RequestStakeClaimReward = InternalRequestSign<StakeClaimRewardParams>;
+
+export interface RequestEarningImpact {
+  slug: string;
+  value: string;
+  netuid: number;
+  type: ExtrinsicType;
+}

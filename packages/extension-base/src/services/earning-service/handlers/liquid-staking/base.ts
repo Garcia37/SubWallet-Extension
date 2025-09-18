@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { TransactionError } from '@subwallet/extension-base/background/errors/TransactionError';
-import { BasicTxErrorType, StakingTxErrorType } from '@subwallet/extension-base/background/KoniTypes';
 import { convertDerivativeToOriginToken } from '@subwallet/extension-base/koni/api/yield/helper/utils';
-import { SpecialYieldPoolInfo, YieldPoolType } from '@subwallet/extension-base/types';
+import { BasicTxErrorType, SpecialYieldPoolInfo, StakingTxErrorType, YieldPoolType } from '@subwallet/extension-base/types';
 import { formatNumber } from '@subwallet/extension-base/utils';
 import BigN from 'bignumber.js';
 import { t } from 'i18next';
@@ -70,13 +69,13 @@ export default abstract class BaseLiquidStakingPoolHandler extends BaseSpecialSt
     const derivativeTokenInfo = this.state.getAssetBySlug(this.derivativeAssets[0]);
 
     if (bnAmount.lte(BN_ZERO)) {
-      return [new TransactionError(BasicTxErrorType.INVALID_PARAMS, t('Amount must be greater than 0'))];
+      return [new TransactionError(BasicTxErrorType.INVALID_PARAMS, t('bg.EARNING.services.service.earning.liquidStaking.amountMustBeGreaterThanZero'))];
     }
 
     if (bnAmount.lt(minUnstake)) {
       const minUnstakeStr = formatNumber(minUnstake.toString(), derivativeTokenInfo.decimals || 0);
 
-      errors.push(new TransactionError(StakingTxErrorType.NOT_ENOUGH_MIN_UNSTAKE, t('You need to unstake at least {{amount}} {{token}}', { replace: { amount: minUnstakeStr, token: derivativeTokenInfo.symbol } })));
+      errors.push(new TransactionError(StakingTxErrorType.NOT_ENOUGH_MIN_UNSTAKE, t('bg.EARNING.services.service.earning.liquidStaking.unstakeMinimumAmount', { replace: { amount: minUnstakeStr, token: derivativeTokenInfo.symbol } })));
     }
 
     if (!fastLeave) {
@@ -85,7 +84,7 @@ export default abstract class BaseLiquidStakingPoolHandler extends BaseSpecialSt
       }
 
       if (poolPosition.unstakings.length > maxUnstakeRequest) {
-        errors.push(new TransactionError(StakingTxErrorType.EXCEED_MAX_UNSTAKING, t('You cannot unstake more than {{number}} times', { replace: { number: maxUnstakeRequest } })));
+        errors.push(new TransactionError(StakingTxErrorType.EXCEED_MAX_UNSTAKING, t('bg.EARNING.services.service.earning.liquidStaking.maxUnstakeTimes', { replace: { number: maxUnstakeRequest } })));
       }
     }
 

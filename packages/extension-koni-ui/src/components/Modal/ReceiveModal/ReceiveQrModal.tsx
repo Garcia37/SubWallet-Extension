@@ -25,6 +25,8 @@ interface Props extends ThemeProps {
 
 const modalId = RECEIVE_QR_MODAL;
 
+// @deprecated
+
 const Component: React.FC<Props> = ({ address, className, selectedNetwork }: Props) => {
   const { t } = useTranslation();
   const { inactiveModal } = useContext(ModalContext);
@@ -65,7 +67,7 @@ const Component: React.FC<Props> = ({ address, className, selectedNetwork }: Pro
     }
   }, [scanExplorerAddressUrl]);
 
-  const onClickCopyBtn = useCallback(() => notify({ message: t('Copied to clipboard') }), [notify, t]);
+  const onClickCopyBtn = useCallback(() => notify({ message: t('ui.ACCOUNT.components.Modal.Receive.Qr.copiedToClipboard') }), [notify, t]);
 
   const onCancel = useCallback(() => {
     inactiveModal(modalId);
@@ -85,7 +87,7 @@ const Component: React.FC<Props> = ({ address, className, selectedNetwork }: Pro
       rightIconProps={{
         icon: <InfoIcon />
       }}
-      title={t<string>('Your address')}
+      title={t<string>('ui.ACCOUNT.components.Modal.Receive.Qr.yourAddress')}
     >
       <>
         <div className='receive-qr-code-wrapper'>
@@ -123,7 +125,7 @@ const Component: React.FC<Props> = ({ address, className, selectedNetwork }: Pro
                   }
                   onClick={onClickCopyBtn}
                   size='xs'
-                  tooltip={t('Copy address')}
+                  tooltip={t('ui.ACCOUNT.components.Modal.Receive.Qr.copyAddress')}
                   type='ghost'
                 />
               </CopyToClipboard>
@@ -144,7 +146,7 @@ const Component: React.FC<Props> = ({ address, className, selectedNetwork }: Pro
             />
           }
           onClick={handleClickViewOnExplorer}
-        >{t('View on explorer')}</Button>
+        >{t('ui.ACCOUNT.components.Modal.Receive.Qr.viewOnExplorer')}</Button>
       </>
     </SwModal>
   );

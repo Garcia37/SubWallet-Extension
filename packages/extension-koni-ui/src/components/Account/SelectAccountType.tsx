@@ -4,13 +4,12 @@
 import { EVM_ACCOUNT_TYPE, SUBSTRATE_ACCOUNT_TYPE } from '@subwallet/extension-koni-ui/constants/account';
 import useTranslation from '@subwallet/extension-koni-ui/hooks/common/useTranslation';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { KeypairType } from '@subwallet/keyring/types';
 import { Icon, Logo, SettingItem } from '@subwallet/react-ui';
 import CN from 'classnames';
 import { CheckCircle } from 'phosphor-react';
 import React, { useCallback, useMemo } from 'react';
 import styled from 'styled-components';
-
-import { KeypairType } from '@polkadot/util-crypto/types';
 
 interface SelectAccountTypeProps extends ThemeProps {
   selectedItems: KeypairType[];
@@ -54,13 +53,13 @@ const Component: React.FC<SelectAccountTypeProps> = (props: SelectAccountTypePro
     {
       icon: 'polkadot',
       key: SUBSTRATE_ACCOUNT_TYPE,
-      label: t('Polkadot'),
+      label: t('ui.ACCOUNT.components.Account.SelectType.polkadot'),
       onClick: onClickItem(SUBSTRATE_ACCOUNT_TYPE)
     },
     {
       icon: 'ethereum',
       key: EVM_ACCOUNT_TYPE,
-      label: t('Ethereum'),
+      label: t('ui.ACCOUNT.components.Account.SelectType.ethereum'),
       onClick: onClickItem(EVM_ACCOUNT_TYPE)
     }
   ]), [t, onClickItem]);

@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { calculateReward } from '@subwallet/extension-base/services/earning-service/utils';
-import { YieldPoolInfo } from '@subwallet/extension-base/types';
+import { YieldPoolInfo, YieldPoolType } from '@subwallet/extension-base/types';
 import EarningTypeTag from '@subwallet/extension-koni-ui/components/Earning/EarningTypeTag';
 import { BN_TEN } from '@subwallet/extension-koni-ui/constants';
-import { useGetChainAssetInfo, useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { useCreateGetSubnetStakingTokenName, useGetChainAssetInfo, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { Logo, Number } from '@subwallet/react-ui';
 import BigN from 'bignumber.js';
@@ -29,7 +29,7 @@ const Component: React.FC<Props> = (props: Props) => {
   const tvl = poolInfo.statistic?.tvl;
 
   const asset = useGetChainAssetInfo(inputAsset);
-
+  const getSubnetStakingTokenName = useCreateGetSubnetStakingTokenName();
   const { currencyData, priceMap } = useSelector((state) => state.price);
 
   const apy = useMemo((): number | undefined => {
@@ -65,17 +65,34 @@ const Component: React.FC<Props> = (props: Props) => {
     }
   }, [asset, priceMap, tvl]);
 
+  const isSubnetStaking = useMemo(() => [YieldPoolType.SUBNET_STAKING].includes(poolInfo.type), [poolInfo.type]);
+  const isBittensor = useMemo(() => poolInfo.chain === 'bittensor', [poolInfo.chain]);
+  const subnetToken = useMemo(() => {
+    return getSubnetStakingTokenName(poolInfo.chain, poolInfo.metadata.subnetData?.netuid || 0);
+  }, [getSubnetStakingTokenName, poolInfo.chain, poolInfo.metadata.subnetData?.netuid]);
+
   return (
     <div
       className={CN(className)}
       onClick={onClick}
     >
       <div className={'__item-upper-part'}>
-        <Logo
-          className={'__item-logo'}
-          network={logo || chain}
-          size={40}
-        />
+        {!isSubnetStaking
+          ? (
+            <Logo
+              className={'__item-logo'}
+              network={logo || chain}
+              size={40}
+            />)
+          : (
+            <Logo
+              className='__item-logo'
+              isShowSubLogo={false}
+              network={logo || chain}
+              size={40}
+              token={subnetToken}
+            />
+          )}
 
         <div className='__item-lines-container'>
           <div className='__item-line-1'>
@@ -91,7 +108,7 @@ const Component: React.FC<Props> = (props: Props) => {
             {!!apy && (
               <div className='__item-rewards'>
                 <div className='__item-rewards-label'>
-                  {t('Rewards')}:
+                  {t(`${isSubnetStaking ? 'Emission' : isBittensor ? 'Max APY' : 'Rewards'}`)}:
                 </div>
                 <div className='__item-rewards-value'>
                   <Number
@@ -106,7 +123,7 @@ const Component: React.FC<Props> = (props: Props) => {
 
           <div className='__item-line-2'>
             <div className='__item-total-staked-label'>
-              {t('Total value staked')}:
+              {t('ui.EARNING.components.Earning.PoolItem.totalValueStaked')}:
             </div>
             <div className='__item-total-staked-value'>
               {total
@@ -120,7 +137,7 @@ const Component: React.FC<Props> = (props: Props) => {
                 )
                 : (
                   <span>
-                    {t('TBD')}
+                    {t('ui.EARNING.components.Earning.PoolItem.tbd')}
                   </span>
                 )}
             </div>

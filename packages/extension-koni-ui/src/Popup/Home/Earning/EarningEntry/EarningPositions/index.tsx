@@ -1,13 +1,15 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { _ChainInfo } from '@subwallet/chain-list/types';
 import { NotificationType } from '@subwallet/extension-base/background/KoniTypes';
-import { ALL_ACCOUNT_KEY } from '@subwallet/extension-base/constants';
 import { YieldPoolType, YieldPositionInfo } from '@subwallet/extension-base/types';
+import { detectTranslate, isAccountAll } from '@subwallet/extension-base/utils';
 import { AlertModal, EmptyList, FilterModal, Layout } from '@subwallet/extension-koni-ui/components';
 import { EarningPositionItem } from '@subwallet/extension-koni-ui/components/Earning';
+import BannerGenerator from '@subwallet/extension-koni-ui/components/StaticContent/BannerGenerator';
 import { ASTAR_PORTAL_URL, BN_TEN, EARNING_WARNING_ANNOUNCEMENT } from '@subwallet/extension-koni-ui/constants';
-import { useAlert, useFilterModal, useGetYieldPositionForSpecificAccount, useSelector, useTranslation } from '@subwallet/extension-koni-ui/hooks';
+import { useAlert, useFilterModal, useGetBannerByScreen, useGetYieldPositionForSpecificAccount, useSelector, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { reloadCron } from '@subwallet/extension-koni-ui/messaging';
 import { RootState } from '@subwallet/extension-koni-ui/stores';
 import { EarningEntryView, EarningPositionDetailParam, ExtraYieldPositionInfo, ThemeProps } from '@subwallet/extension-koni-ui/types';
@@ -17,6 +19,7 @@ import BigN from 'bignumber.js';
 import CN from 'classnames';
 import { ArrowsClockwise, FadersHorizontal, Plus, PlusCircle, Vault } from 'phosphor-react';
 import React, { SyntheticEvent, useCallback, useContext, useEffect, useMemo } from 'react';
+import { Trans } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useLocalStorage } from 'usehooks-ts';
@@ -27,9 +30,14 @@ type Props = ThemeProps & {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-let cacheData: Record<string, boolean> = {};
 const FILTER_MODAL_ID = 'earning-positions-filter-modal';
 const alertModalId = 'earning-positions-alert-modal';
+
+const getOrdinalChainTypeValue = (item: ExtraYieldPositionInfo, chainInfoMap: Record<string, _ChainInfo>): number => {
+  const chainInfo = chainInfoMap[item.chain];
+
+  return chainInfo?.isTestnet ? 0 : 1;
+};
 
 function Component ({ className, earningPositions, setEntryView, setLoading }: Props) {
   const { t } = useTranslation();
@@ -41,11 +49,12 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
   const { currencyData, priceMap } = useSelector((state) => state.price);
   const { assetRegistry: assetInfoMap } = useSelector((state) => state.assetRegistry);
   const chainInfoMap = useSelector((state) => state.chainStore.chainInfoMap);
-  const { currentAccount } = useSelector((state) => state.accountState);
+  const currentAccountProxy = useSelector((state) => state.accountState.currentAccountProxy);
   const accounts = useSelector((root: RootState) => root.accountState.accounts);
   const { filterSelectionMap, onApplyFilter, onChangeFilterOption, onCloseFilterModal, selectedFilters } = useFilterModal(FILTER_MODAL_ID);
   const { alertProps, closeAlert, openAlert } = useAlert(alertModalId);
-  const specificList = useGetYieldPositionForSpecificAccount(currentAccount?.address);
+  const specificList = useGetYieldPositionForSpecificAccount();
+  const { banners, dismissBanner, onClickBanner } = useGetBannerByScreen('earning');
   const [announcement, setAnnouncement] = useLocalStorage(EARNING_WARNING_ANNOUNCEMENT, 'nonConfirmed');
 
   const items: ExtraYieldPositionInfo[] = useMemo(() => {
@@ -73,11 +82,16 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
             .toNumber();
         };
 
-        return getValue(secondItem) - getValue(firstItem);
+        return getOrdinalChainTypeValue(secondItem, chainInfoMap) - getOrdinalChainTypeValue(firstItem, chainInfoMap) ||
+          getValue(secondItem) - getValue(firstItem);
       });
-  }, [assetInfoMap, currencyData, earningPositions, priceMap]);
+  }, [assetInfoMap, chainInfoMap, currencyData, earningPositions, priceMap]);
 
   const chainStakingBoth = useMemo(() => {
+    if (!currentAccountProxy) {
+      return null;
+    }
+
     const chains = ['polkadot', 'kusama'];
 
     const findChainWithStaking = (list: YieldPositionInfo[]) => {
@@ -93,23 +107,25 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
       return null;
     };
 
-    if (currentAccount?.address !== ALL_ACCOUNT_KEY) {
+    if (isAccountAll(currentAccountProxy.id)) {
       return findChainWithStaking(specificList);
     }
 
     for (const acc of accounts) {
-      if (acc.address !== ALL_ACCOUNT_KEY) {
-        const listStaking = specificList.filter((item) => item.address === acc.address);
-        const chain = findChainWithStaking(listStaking);
+      if (isAccountAll(acc.address)) {
+        continue;
+      }
 
-        if (chain) {
-          return chain;
-        }
+      const listStaking = specificList.filter((item) => item.address === acc.address);
+      const chain = findChainWithStaking(listStaking);
+
+      if (chain) {
+        return chain;
       }
     }
 
     return null;
-  }, [accounts, currentAccount?.address, specificList]);
+  }, [accounts, currentAccountProxy, specificList]);
 
   const learnMore = useCallback(() => {
     window.open('https://support.polkadot.network/support/solutions/articles/65000188140-changes-for-nomination-pool-members-and-opengov-participation');
@@ -133,23 +149,27 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
         content:
           (<>
             <div className={CN(className, 'earning-alert-content')}>
-              <span>{t('You’re dual staking via both direct nomination and nomination pool, which')}&nbsp;</span>
-              <span className={'__info-highlight'}>{t('will not be supported')}&nbsp;</span>
-              <span>{t(`in the upcoming ${originChain} runtime upgrade. Read more to learn about the upgrade, and`)}&nbsp;</span>
-              <a
-                href={'https://docs.subwallet.app/main/mobile-app-user-guide/manage-staking/unstake'}
-                rel='noreferrer'
-                style={{ textDecoration: 'underline' }}
-                target={'_blank'}
-              >{(`unstake your ${symbol}`)}
-              </a>&nbsp;
-              <span>{t('from one of the methods to avoid issues')}</span>
+              <Trans
+                components={{
+                  openlink: (
+                    <a
+                      href='https://docs.subwallet.app/main/mobile-app-user-guide/manage-staking/unstake'
+                      rel='noopener noreferrer'
+                      style={{ textDecoration: 'underline', cursor: 'pointer' }}
+                      target='_blank'
+                    ></a>
+                  ),
+                  highlight: <span className='__info-highlight' />
+                }}
+                i18nKey={detectTranslate('ui.EARNING.screen.EarningPositions.dualStakingNotSupportedWarning')}
+                values={{ originChain, symbol }}
+              />
             </div>
 
           </>),
-        title: t(`Unstake your ${symbol} now!`),
+        title: t('ui.EARNING.screen.EarningPositions.unstakeYourTokenNow', { replace: { tokenSymbol: symbol } }),
         okButton: {
-          text: t('Read update'),
+          text: t('ui.EARNING.screen.EarningPositions.readUpdate'),
           onClick: () => {
             learnMore();
             setAnnouncement('confirmed');
@@ -157,7 +177,7 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
           }
         },
         cancelButton: {
-          text: t('Dismiss'),
+          text: t('ui.EARNING.screen.EarningPositions.dismiss'),
           onClick: () => {
             closeAlert();
             setAnnouncement('confirmed');
@@ -172,59 +192,34 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
   }, [items]);
 
   const filterOptions = [
-    { label: t('Nomination pool'), value: YieldPoolType.NOMINATION_POOL },
-    { label: t('Direct nomination'), value: YieldPoolType.NATIVE_STAKING },
-    { label: t('Liquid staking'), value: YieldPoolType.LIQUID_STAKING },
-    { label: t('Lending'), value: YieldPoolType.LENDING },
-    { label: t('Parachain staking'), value: YieldPoolType.PARACHAIN_STAKING },
-    { label: t('Single farming'), value: YieldPoolType.SINGLE_FARMING }
+    { label: t('ui.EARNING.screen.EarningPositions.nominationPool'), value: YieldPoolType.NOMINATION_POOL },
+    { label: t('ui.EARNING.screen.EarningPositions.directNomination'), value: YieldPoolType.NATIVE_STAKING },
+    { label: t('ui.EARNING.screen.EarningPositions.liquidStaking'), value: YieldPoolType.LIQUID_STAKING },
+    { label: t('ui.EARNING.screen.EarningPositions.lending'), value: YieldPoolType.LENDING },
+    { label: t('ui.EARNING.screen.EarningPositions.parachainStaking'), value: YieldPoolType.PARACHAIN_STAKING },
+    { label: t('ui.EARNING.screen.EarningPositions.singleFarming'), value: YieldPoolType.SINGLE_FARMING },
+    { label: t('ui.EARNING.screen.EarningPositions.subnetStaking'), value: YieldPoolType.SUBNET_STAKING }
   ];
 
-  const filterFunction = useMemo<(items: ExtraYieldPositionInfo) => boolean>(() => {
-    return (item) => {
-      if (!selectedFilters.length) {
-        return true;
-      }
+  const filterFunction = useMemo<(item: ExtraYieldPositionInfo) => boolean>(() => {
+    const filterMap: Record<string, boolean> = Object.fromEntries(selectedFilters.map((filter) => [filter, true]));
 
-      for (const filter of selectedFilters) {
-        if (filter === '') {
-          return true;
-        }
-
-        if (filter === YieldPoolType.NOMINATION_POOL && item.type === YieldPoolType.NOMINATION_POOL) {
-          return true;
-        } else if (filter === YieldPoolType.NATIVE_STAKING && item.type === YieldPoolType.NATIVE_STAKING) {
-          return true;
-        } else if (filter === YieldPoolType.LIQUID_STAKING && item.type === YieldPoolType.LIQUID_STAKING) {
-          return true;
-        } else if (filter === YieldPoolType.LENDING && item.type === YieldPoolType.LENDING) {
-          return true;
-        }
-        // Uncomment the following code block if needed
-        // else if (filter === YieldPoolType.PARACHAIN_STAKING && item.type === YieldPoolType.PARACHAIN_STAKING) {
-        //   return true;
-        // } else if (filter === YieldPoolType.SINGLE_FARMING && item.type === YieldPoolType.SINGLE_FARMING) {
-        //   return true;
-        // }
-      }
-
-      return false;
-    };
+    return (item) => !selectedFilters.length || filterMap[item.type] || false;
   }, [selectedFilters]);
 
   const onClickItem = useCallback((item: ExtraYieldPositionInfo) => {
     return () => {
       if (isRelatedToAstar(item.slug)) {
         openAlert({
-          title: t('Enter Astar portal'),
-          content: t('Navigate to Astar portal to view and manage your stake in Astar dApp staking v3'),
+          title: t('ui.EARNING.screen.EarningPositions.enterAstarPortal'),
+          content: t('ui.EARNING.screen.EarningPositions.navigateToAstarPortal'),
           cancelButton: {
-            text: t('Cancel'),
+            text: t('ui.EARNING.screen.EarningPositions.cancel'),
             schema: 'secondary',
             onClick: closeAlert
           },
           okButton: {
-            text: t('Enter Astar portal'),
+            text: t('ui.EARNING.screen.EarningPositions.enterAstarPortal'),
             onClick: () => {
               openInNewTab(ASTAR_PORTAL_URL)();
               closeAlert();
@@ -245,11 +240,10 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
   const renderItem = useCallback(
     (item: ExtraYieldPositionInfo) => {
       return (
-        <>
+        <React.Fragment key={item.slug}>
           <EarningPositionItem
             className={'earning-position-item'}
             isShowBalance={isShowBalance}
-            key={item.slug}
             onClick={onClickItem(item)}
             positionInfo={item}
           />
@@ -265,10 +259,10 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
               size={'xs'}
               type={'ghost'}
             >
-              {t('Explore earning options')}
+              {t('ui.EARNING.screen.EarningPositions.exploreEarningOptions')}
             </Button>
           </div>}
-        </>
+        </React.Fragment>
       );
     },
     [lastItem.slug, isShowBalance, onClickItem, onClickExploreEarning, t]
@@ -288,23 +282,26 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
           },
           size: 'xs',
           shape: 'circle',
-          children: t('Explore earning options')
+          children: t('ui.EARNING.screen.EarningPositions.exploreEarningOptions')
         }}
-        emptyMessage={t('Change your search or explore other earning options')}
-        emptyTitle={t('No earning position found')}
+        emptyMessage={t('ui.EARNING.screen.EarningPositions.changeSearchOrExplore')}
+        emptyTitle={t('ui.EARNING.screen.EarningPositions.noEarningPositionFound')}
         phosphorIcon={Vault}
       />
     );
   }, [setEntryView, t]);
 
-  const searchFunction = useCallback(({ balanceToken, chain: _chain }: ExtraYieldPositionInfo, searchText: string) => {
+  // SEARCH LOGIC HERE
+  const searchFunction = useCallback(({ balanceToken, chain: _chain, subnetData }: ExtraYieldPositionInfo, searchText: string) => {
     const chainInfo = chainInfoMap[_chain];
     const assetInfo = assetInfoMap[balanceToken];
+    const search = searchText.toLowerCase();
 
-    return (
-      chainInfo?.name.replace(' Relay Chain', '').toLowerCase().includes(searchText.toLowerCase()) ||
-      assetInfo?.symbol.toLowerCase().includes(searchText.toLowerCase())
-    );
+    return [
+      chainInfo?.name.replace(' Relay Chain', '').toLowerCase(),
+      assetInfo?.symbol.toLowerCase(),
+      subnetData?.subnetShortName?.toLowerCase()
+    ].some((value) => value?.includes(search));
   }, [assetInfoMap, chainInfoMap]);
 
   const subHeaderButtons: ButtonProps[] = useMemo(() => {
@@ -342,14 +339,6 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
     ];
   }, [setEntryView, setLoading]);
 
-  useEffect(() => {
-    const address = currentAccount?.address || '';
-
-    if (cacheData[address] === undefined) {
-      cacheData = { [address]: !items.length };
-    }
-  }, [items.length, currentAccount]);
-
   const onClickFilterButton = useCallback(
     (e?: SyntheticEvent) => {
       e && e.stopPropagation();
@@ -367,8 +356,17 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
         subHeaderCenter={false}
         subHeaderIcons={subHeaderButtons}
         subHeaderPaddingVertical={true}
-        title={t<string>('Your earning positions')}
+        title={t<string>('ui.EARNING.screen.EarningPositions.yourEarningPositions')}
       >
+        {!!banners.length && (
+          <div className={'earning-banner-wrapper'}>
+            <BannerGenerator
+              banners={banners}
+              dismissBanner={dismissBanner}
+              onClickBanner={onClickBanner}
+            />
+          </div>
+        )}
         <SwList.Section
           actionBtnIcon={<Icon phosphorIcon={FadersHorizontal} />}
           className={'__section-list-container'}
@@ -380,18 +378,18 @@ function Component ({ className, earningPositions, setEntryView, setLoading }: P
           renderWhenEmpty={emptyList}
           searchFunction={searchFunction}
           searchMinCharactersCount={2}
-          searchPlaceholder={t<string>('Search token')}
+          searchPlaceholder={t<string>('ui.EARNING.screen.EarningPositions.searchToken')}
           showActionBtn
         />
         <FilterModal
-          applyFilterButtonTitle={t('Apply filter')}
+          applyFilterButtonTitle={t('ui.EARNING.screen.EarningPositions.applyFilter')}
           id={FILTER_MODAL_ID}
           onApplyFilter={onApplyFilter}
           onCancel={onCloseFilterModal}
           onChangeOption={onChangeFilterOption}
           optionSelectionMap={filterSelectionMap}
           options={filterOptions}
-          title={t('Filter')}
+          title={t('ui.EARNING.screen.EarningPositions.filter')}
         />
       </Layout.Base>
 
@@ -434,6 +432,12 @@ const EarningPositions = styled(Component)<Props>(({ theme: { token } }: Props) 
     '+ .earning-position-item': {
       marginTop: token.marginXS
     }
+  },
+
+  '.earning-banner-wrapper': {
+    paddingLeft: token.padding,
+    paddingRight: token.padding,
+    marginBottom: token.sizeXS
   }
 }));
 

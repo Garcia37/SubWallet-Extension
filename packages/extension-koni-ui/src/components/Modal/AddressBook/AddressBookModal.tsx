@@ -1,11 +1,16 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AbstractAddressJson, AccountJson } from '@subwallet/extension-base/background/types';
-import { BackIcon } from '@subwallet/extension-koni-ui/components';
-import { useFilterModal, useFormatAddress, useGetChainInfoByGenesisHash, useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { ActionType } from '@subwallet/extension-base/core/types';
+import { _isChainInfoCompatibleWithAccountInfo } from '@subwallet/extension-base/services/chain-service/utils';
+import { AccountSignMode, AnalyzeAddress, AnalyzedGroup } from '@subwallet/extension-base/types';
+import { _reformatAddressWithChain, getAccountChainTypeForAddress } from '@subwallet/extension-base/utils';
+import { AddressSelectorItem, BackIcon } from '@subwallet/extension-koni-ui/components';
+import { useChainInfo, useCoreCreateReformatAddress, useFilterModal, useSelector } from '@subwallet/extension-koni-ui/hooks';
+import { useGetExcludedTokens } from '@subwallet/extension-koni-ui/hooks/assets';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
-import { funcSortByName, isAccountAll, reformatAddress } from '@subwallet/extension-koni-ui/utils';
+import { getSignModeByAccountProxy, isAccountAll, sortFuncAnalyzeAddress } from '@subwallet/extension-koni-ui/utils';
+import { getKeypairTypeByAddress } from '@subwallet/keyring';
 import { Badge, Icon, ModalContext, SwList, SwModal } from '@subwallet/react-ui';
 import { SwListSectionRef } from '@subwallet/react-ui/es/sw-list';
 import CN from 'classnames';
@@ -14,55 +19,39 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef } from 'reac
 import { useTranslation } from 'react-i18next';
 import styled from 'styled-components';
 
-import { isAddress, isEthereumAddress } from '@polkadot/util-crypto';
-
-import { AccountItemWithName } from '../../Account';
 import { GeneralEmptyList } from '../../EmptyList';
 import { FilterModal } from '../FilterModal';
 
 interface Props extends ThemeProps {
   value?: string;
   id: string;
-  addressPrefix?: number;
-  onSelect: (val: string) => void;
-  networkGenesisHash?: string;
-}
-
-enum AccountGroup {
-  WALLET = 'wallet',
-  CONTACT = 'contact',
-  RECENT = 'recent'
+  chainSlug?: string;
+  tokenSlug?: string;
+  actionType?: ActionType;
+  onSelect: (val: string, item: AnalyzeAddress) => void;
 }
 
 interface FilterOption {
   label: string;
-  value: AccountGroup;
-}
-
-interface AccountItem extends AbstractAddressJson {
-  group: AccountGroup;
+  value: AnalyzedGroup;
 }
 
 const renderEmpty = () => <GeneralEmptyList />;
 
-const getGroupPriority = (item: AccountItem): number => {
-  switch (item.group) {
-    case AccountGroup.WALLET:
+const getGroupPriority = (item: AnalyzeAddress): number => {
+  switch (item.analyzedGroup) {
+    case AnalyzedGroup.WALLET:
       return 2;
-    case AccountGroup.CONTACT:
+    case AnalyzedGroup.CONTACT:
       return 1;
-    case AccountGroup.RECENT:
+    case AnalyzedGroup.RECENT:
     default:
       return 0;
   }
 };
 
-const checkLedger = (account: AccountJson, networkGenesisHash?: string): boolean => {
-  return !networkGenesisHash || !account.isHardware || account.isGeneric || (account.availableGenesisHashes || []).includes(networkGenesisHash);
-};
-
 const Component: React.FC<Props> = (props: Props) => {
-  const { addressPrefix, className, id, networkGenesisHash, onSelect, value = '' } = props;
+  const { actionType, chainSlug, className, id, onSelect, tokenSlug = '', value = '' } = props;
 
   const { t } = useTranslation();
 
@@ -70,11 +59,13 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const isActive = checkActive(id);
 
-  const { accounts, contacts, recent } = useSelector((state) => state.accountState);
+  const { accountProxies, contacts, recent } = useSelector((state) => state.accountState);
 
-  const formatAddress = useFormatAddress(addressPrefix);
-  const chainInfo = useGetChainInfoByGenesisHash(networkGenesisHash);
-  const chain = chainInfo?.slug || '';
+  const chainInfo = useChainInfo(chainSlug);
+
+  const getReformatAddress = useCoreCreateReformatAddress();
+
+  const getExcludedTokenByAccountProxy = useGetExcludedTokens();
 
   const filterModal = useMemo(() => `${id}-filter-modal`, [id]);
 
@@ -84,58 +75,102 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const filterOptions: FilterOption[] = useMemo(() => ([
     {
-      label: t('Your wallet'),
-      value: AccountGroup.WALLET
+      label: t('ui.components.Modal.AddressBook.Selector.yourWallet'),
+      value: AnalyzedGroup.WALLET
     },
     {
-      label: t('Saved contacts'),
-      value: AccountGroup.CONTACT
+      label: t('ui.components.Modal.AddressBook.Selector.savedContacts'),
+      value: AnalyzedGroup.CONTACT
     },
     {
-      label: t('Recent'),
-      value: AccountGroup.RECENT
+      label: t('ui.components.Modal.AddressBook.Selector.recent'),
+      value: AnalyzedGroup.RECENT
     }
   ]), [t]);
 
-  const items = useMemo((): AccountItem[] => {
-    const result: AccountItem[] = [];
+  const items = useMemo((): AnalyzeAddress[] => {
+    if (!chainInfo) {
+      return [];
+    }
 
-    (!selectedFilters.length || selectedFilters.includes(AccountGroup.RECENT)) && recent.forEach((acc) => {
+    const result: AnalyzeAddress[] = [];
+
+    (!selectedFilters.length || selectedFilters.includes(AnalyzedGroup.RECENT)) && recent.forEach((acc) => {
       const chains = acc.recentChainSlugs || [];
 
-      if (chains.includes(chain)) {
-        const address = isAddress(acc.address) ? reformatAddress(acc.address) : acc.address;
-
-        result.push({ ...acc, address: address, group: AccountGroup.RECENT });
+      if (chainSlug && chains.includes(chainSlug)) {
+        result.push({
+          displayName: acc.name,
+          formatedAddress: _reformatAddressWithChain(acc.address, chainInfo),
+          address: acc.address,
+          analyzedGroup: AnalyzedGroup.RECENT
+        });
       }
     });
 
-    (!selectedFilters.length || selectedFilters.includes(AccountGroup.CONTACT)) && contacts.forEach((acc) => {
-      const address = isAddress(acc.address) ? reformatAddress(acc.address) : acc.address;
-
-      result.push({ ...acc, address: address, group: AccountGroup.CONTACT });
-    });
-
-    (!selectedFilters.length || selectedFilters.includes(AccountGroup.WALLET)) && accounts.filter((acc) => !isAccountAll(acc.address)).forEach((acc) => {
-      const address = isAddress(acc.address) ? reformatAddress(acc.address) : acc.address;
-
-      if (checkLedger(acc, networkGenesisHash)) {
-        result.push({ ...acc, address: address, group: AccountGroup.WALLET });
+    (!selectedFilters.length || selectedFilters.includes(AnalyzedGroup.CONTACT)) && contacts.forEach((acc) => {
+      if (_isChainInfoCompatibleWithAccountInfo(chainInfo, {
+        chainType: getAccountChainTypeForAddress(acc.address),
+        type: getKeypairTypeByAddress(acc.address)
+      })) {
+        result.push({
+          displayName: acc.name,
+          formatedAddress: _reformatAddressWithChain(acc.address, chainInfo),
+          address: acc.address,
+          analyzedGroup: AnalyzedGroup.CONTACT
+        });
       }
     });
+
+    (!selectedFilters.length || selectedFilters.includes(AnalyzedGroup.WALLET)) && accountProxies.forEach((ap) => {
+      if (isAccountAll(ap.id)) {
+        return;
+      }
+
+      // todo: recheck with ledger
+      const excludedTokens = getExcludedTokenByAccountProxy([chainInfo.slug], ap);
+
+      if (excludedTokens.includes(tokenSlug)) {
+        return;
+      }
+
+      if (actionType === ActionType.SEND_NFT) {
+        const signMode = getSignModeByAccountProxy(ap);
+
+        if (signMode === AccountSignMode.ECDSA_SUBSTRATE_LEDGER) {
+          return;
+        }
+      }
+
+      ap.accounts.forEach((acc) => {
+        const formatedAddress = getReformatAddress(acc, chainInfo);
+
+        if (formatedAddress) {
+          result.push({
+            displayName: acc.name,
+            formatedAddress,
+            address: acc.address,
+            analyzedGroup: AnalyzedGroup.WALLET,
+            proxyId: ap.id
+          });
+        }
+      });
+    });
+
+    // todo: may need better solution for this sorting below
 
     return result
-      .sort(funcSortByName)
+      .sort(sortFuncAnalyzeAddress)
       .sort((a, b) => getGroupPriority(b) - getGroupPriority(a));
-  }, [accounts, chain, contacts, networkGenesisHash, recent, selectedFilters]);
+  }, [accountProxies, actionType, chainInfo, chainSlug, contacts, getExcludedTokenByAccountProxy, getReformatAddress, recent, selectedFilters, tokenSlug]);
 
-  const searchFunction = useCallback((item: AccountItem, searchText: string) => {
+  const searchFunction = useCallback((item: AnalyzeAddress, searchText: string) => {
     const searchTextLowerCase = searchText.toLowerCase();
 
     return (
-      item.address.toLowerCase().includes(searchTextLowerCase) ||
-      (item.name
-        ? item.name.toLowerCase().includes(searchTextLowerCase)
+      item.formatedAddress.toLowerCase().includes(searchTextLowerCase) ||
+      (item.displayName
+        ? item.displayName.toLowerCase().includes(searchTextLowerCase)
         : false)
     );
   }, []);
@@ -145,56 +180,42 @@ const Component: React.FC<Props> = (props: Props) => {
     onResetFilter();
   }, [id, inactiveModal, onResetFilter]);
 
-  const onSelectItem = useCallback((item: AccountItem) => {
+  const onSelectItem = useCallback((item: AnalyzeAddress) => {
     return () => {
-      const address = reformatAddress(item.address, addressPrefix);
-
       inactiveModal(id);
-      onSelect(address);
+      onSelect(item.formatedAddress, item);
       onResetFilter();
     };
-  }, [addressPrefix, id, inactiveModal, onResetFilter, onSelect]);
+  }, [id, inactiveModal, onResetFilter, onSelect]);
 
-  const renderItem = useCallback((item: AccountItem) => {
-    const address = formatAddress(item);
-    const isRecent = item.group === AccountGroup.RECENT;
-    let selected: boolean;
-
-    if (isEthereumAddress(value)) {
-      selected = value.toLowerCase() === address.toLowerCase();
-    } else {
-      selected = value === address;
-    }
-
+  const renderItem = useCallback((item: AnalyzeAddress) => {
     return (
-      <AccountItemWithName
-        accountName={item.name}
-        address={address}
-        addressPreLength={isRecent ? 9 : 4}
-        addressSufLength={isRecent ? 9 : 4}
-        avatarSize={24}
-        fallbackName={false}
-        isSelected={selected}
-        key={`${item.address}_${item.group}`}
+      <AddressSelectorItem
+        address={item.formatedAddress}
+        avatarValue={item.proxyId || item.address}
+        className={'__list-item'}
+        isSelected={value.toLowerCase() === item.formatedAddress.toLowerCase()}
+        key={`${item.formatedAddress}_${item.analyzedGroup}`}
+        name={item.displayName}
         onClick={onSelectItem(item)}
       />
     );
-  }, [formatAddress, onSelectItem, value]);
+  }, [onSelectItem, value]);
 
-  const groupSeparator = useCallback((group: AccountItem[], idx: number, groupKey: string) => {
-    const _group = groupKey as AccountGroup;
+  const groupSeparator = useCallback((group: AnalyzeAddress[], idx: number, groupKey: string) => {
+    const _group = groupKey as AnalyzedGroup;
 
     let groupLabel = _group;
 
     switch (_group) {
-      case AccountGroup.WALLET:
-        groupLabel = t('Your wallet');
+      case AnalyzedGroup.WALLET:
+        groupLabel = t('ui.components.Modal.AddressBook.Selector.yourWallet');
         break;
-      case AccountGroup.CONTACT:
-        groupLabel = t('Saved contacts');
+      case AnalyzedGroup.CONTACT:
+        groupLabel = t('ui.components.Modal.AddressBook.Selector.savedContacts');
         break;
-      case AccountGroup.RECENT:
-        groupLabel = t('Recent');
+      case AnalyzedGroup.RECENT:
+        groupLabel = t('ui.components.Modal.AddressBook.Selector.recent');
         break;
     }
 
@@ -234,11 +255,14 @@ const Component: React.FC<Props> = (props: Props) => {
         className={CN(className)}
         id={id}
         onCancel={onClose}
-        title={t('Address book')}
+        title={t('ui.components.Modal.AddressBook.Selector.addressBook')}
       >
         <SwList.Section
           actionBtnIcon={(
-            <Badge dot={!!selectedFilters.length}>
+            <Badge
+              className={'g-filter-badge'}
+              dot={!!selectedFilters.length}
+            >
               <Icon
                 phosphorIcon={FadersHorizontal}
                 size='sm'
@@ -247,19 +271,17 @@ const Component: React.FC<Props> = (props: Props) => {
               />
             </Badge>
           )}
-          displayRow={true}
           enableSearchInput={true}
-          groupBy='group'
+          groupBy='analyzedGroup'
           groupSeparator={groupSeparator}
           list={items}
           onClickActionBtn={openFilter}
           ref={sectionRef}
           renderItem={renderItem}
           renderWhenEmpty={renderEmpty}
-          rowGap='var(--row-gap)'
           searchFunction={searchFunction}
           searchMinCharactersCount={2}
-          searchPlaceholder={t<string>('Account name')}
+          searchPlaceholder={t<string>('ui.components.Modal.AddressBook.Selector.accountName')}
           showActionBtn={true}
         />
       </SwModal>
@@ -271,7 +293,7 @@ const Component: React.FC<Props> = (props: Props) => {
         onChangeOption={onChangeFilterOption}
         optionSelectionMap={filterSelectionMap}
         options={filterOptions}
-        title={t('Filter address')}
+        title={t('ui.components.Modal.AddressBook.Selector.filterAddress')}
       />
     </>
   );
@@ -279,8 +301,6 @@ const Component: React.FC<Props> = (props: Props) => {
 
 const AddressBookModal = styled(Component)<Props>(({ theme: { token } }: Props) => {
   return {
-    '--row-gap': `${token.sizeXS}px`,
-
     '.ant-sw-modal-body': {
       display: 'flex',
       paddingLeft: 0,
@@ -289,6 +309,14 @@ const AddressBookModal = styled(Component)<Props>(({ theme: { token } }: Props) 
 
     '.ant-sw-list-section': {
       flex: 1
+    },
+
+    '.ant-sw-list': {
+      paddingBottom: 0
+    },
+
+    '.___list-separator + .__list-item, .__list-item + .__list-item, .__list-item + .___list-separator': {
+      marginTop: token.marginXS
     },
 
     '.address-book-group-separator': {

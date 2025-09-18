@@ -24,6 +24,7 @@ interface Props extends ThemeProps, Omit<TokenItemProps, 'name' | 'subName' | 's
   onPreCopy?: () => Promise<void>;
 }
 
+// todo: deprecated, will remove
 const Component = (props: Props) => {
   const { address, className, item, onClickCopyBtn, onClickQrBtn, onPreCopy, onPressItem, ...restProps } = props;
   const { name, originChain: chain, slug, symbol } = item;
@@ -47,7 +48,7 @@ const Component = (props: Props) => {
     onPreCopy?.()
       .then(() => {
         notify({
-          message: t('Copied to clipboard')
+          message: t('ui.BALANCE.components.TokenItem.Selection.copiedToClipboard')
         });
         copyToClipboard(formattedAddress);
         onClickCopyBtn && onClickCopyBtn();
@@ -59,7 +60,7 @@ const Component = (props: Props) => {
     e.stopPropagation();
 
     notify({
-      message: t('Copied to clipboard')
+      message: t('ui.BALANCE.components.TokenItem.Selection.copiedToClipboard')
     });
     onClickCopyBtn && onClickCopyBtn();
   }, [notify, onClickCopyBtn, t]);
@@ -107,7 +108,7 @@ const Component = (props: Props) => {
                       }
                       onClick={_onClickCopyBtnAsync}
                       size='xs'
-                      tooltip={t('Copy address')}
+                      tooltip={t('ui.BALANCE.components.TokenItem.Selection.copyAddress')}
                       type='ghost'
                     />
                   )
@@ -122,7 +123,7 @@ const Component = (props: Props) => {
                         }
                         onClick={_onCLickCopyBtn}
                         size='xs'
-                        tooltip={t('Copy address')}
+                        tooltip={t('ui.BALANCE.components.TokenItem.Selection.copyAddress')}
                         type='ghost'
                       />
                     </CopyToClipboard>
@@ -138,7 +139,7 @@ const Component = (props: Props) => {
                 }
                 onClick={onClickQrBtn}
                 size='xs'
-                tooltip={t('Show QR code')}
+                tooltip={t('ui.BALANCE.components.TokenItem.Selection.showQrCode')}
                 type='ghost'
               />
             </>

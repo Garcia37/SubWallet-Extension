@@ -3,11 +3,28 @@
 
 import KoniState from '@subwallet/extension-base/koni/background/handlers/State';
 import { ListBuyServicesResponse, ListBuyTokenResponse } from '@subwallet/extension-base/services/buy-service/types';
-import { BuyServiceInfo, BuyTokenInfo, SupportService } from '@subwallet/extension-base/types';
+import { AccountChainType, BuyServiceInfo, BuyTokenInfo, OnrampAccountSupportType, SupportService } from '@subwallet/extension-base/types';
 import { fetchStaticData } from '@subwallet/extension-base/utils/fetchStaticData';
 import { BehaviorSubject } from 'rxjs';
 
 import { DEFAULT_SERVICE_INFO } from './constants';
+
+const convertSupportType = (support: OnrampAccountSupportType): AccountChainType | null => {
+  switch (support) {
+    case 'ETHEREUM':
+      return AccountChainType.ETHEREUM;
+    case 'SUBSTRATE':
+      return AccountChainType.SUBSTRATE;
+    case 'CARDANO':
+      return AccountChainType.CARDANO;
+    case 'TON':
+      return AccountChainType.TON;
+    case 'BITCOIN':
+      return AccountChainType.BITCOIN;
+    default:
+      return null;
+  }
+};
 
 export default class BuyService {
   readonly #state: KoniState;
@@ -40,11 +57,17 @@ export default class BuyService {
     const result: Record<string, BuyTokenInfo> = {};
 
     for (const datum of data) {
+      const support = convertSupportType(datum.support);
+
+      if (!support) {
+        continue;
+      }
+
       const temp: BuyTokenInfo = {
         serviceInfo: {
           ...DEFAULT_SERVICE_INFO
         },
-        support: datum.support,
+        support,
         services: [],
         slug: datum.slug,
         symbol: datum.symbol,

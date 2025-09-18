@@ -22,10 +22,12 @@ interface Props extends ThemeProps {
   onBack?: () => void;
 }
 
+// @deprecated
+
 const Component: React.FC<Props> = ({ address, className, id: modalId, onBack }: Props) => {
   const { t } = useTranslation();
   const notify = useNotification();
-  const onClickCopyBtn = useCallback(() => notify({ message: t('Copied to clipboard') }), [notify, t]);
+  const onClickCopyBtn = useCallback(() => notify({ message: t('ui.ACCOUNT.components.Modal.Receive.SimpleQr.copiedToClipboard') }), [notify, t]);
   const isEvmAddress = isEthereumAddress(address);
 
   return (
@@ -37,7 +39,7 @@ const Component: React.FC<Props> = ({ address, className, id: modalId, onBack }:
       rightIconProps={{
         icon: <InfoIcon />
       }}
-      title={t<string>('Your address')}
+      title={t<string>('ui.ACCOUNT.components.Modal.Receive.SimpleQr.yourAddress')}
     >
       <div className='__qr-code-wrapper'>
         <SwQRCode
@@ -69,7 +71,7 @@ const Component: React.FC<Props> = ({ address, className, id: modalId, onBack }:
                 }
                 onClick={onClickCopyBtn}
                 size='xs'
-                tooltip={t('Copy address')}
+                tooltip={t('ui.ACCOUNT.components.Modal.Receive.SimpleQr.copyAddress')}
                 type='ghost'
               />
             </CopyToClipboard>

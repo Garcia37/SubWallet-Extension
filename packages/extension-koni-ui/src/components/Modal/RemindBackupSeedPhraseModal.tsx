@@ -1,6 +1,8 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
+import { AccountProxyType } from '@subwallet/extension-base/types';
+import { detectTranslate } from '@subwallet/extension-base/utils';
 import { REMIND_BACKUP_SEED_PHRASE_MODAL, SELECT_ACCOUNT_MODAL, USER_GUIDE_URL } from '@subwallet/extension-koni-ui/constants';
 import { useSetSessionLatest } from '@subwallet/extension-koni-ui/hooks';
 import useTranslation from '@subwallet/extension-koni-ui/hooks/common/useTranslation';
@@ -11,6 +13,7 @@ import { Button, ModalContext, PageIcon, SwModal } from '@subwallet/react-ui';
 import CN from 'classnames';
 import { ShieldCheck } from 'phosphor-react';
 import React, { useCallback, useContext, useEffect, useMemo } from 'react';
+import { Trans } from 'react-i18next';
 import { useSelector } from 'react-redux';
 import { useLocation, useNavigate } from 'react-router-dom';
 import styled, { useTheme } from 'styled-components';
@@ -24,7 +27,7 @@ const HistoryPageUrl = '/home/history';
 
 function Component ({ className }: Props): React.ReactElement<Props> {
   const { t } = useTranslation();
-  const { currentAccount, isAllAccount } = useSelector((state: RootState) => state.accountState);
+  const { currentAccountProxy } = useSelector((state: RootState) => state.accountState);
   const location = useLocation();
   const { activeModal, checkActive, inactiveModal } = useContext(ModalContext);
   const { sessionLatest, setSessionLatest } = useSetSessionLatest();
@@ -42,14 +45,19 @@ function Component ({ className }: Props): React.ReactElement<Props> {
     const from = location.pathname.includes(HistoryPageUrl) ? HistoryPageUrl : location.pathname;
     const state = (location.state ? { ...location.state, from } : { from }) as Record<string, string>;
 
-    if (isAllAccount || !!currentAccount?.isExternal) {
+    if (currentAccountProxy) {
+      if ([AccountProxyType.SOLO, AccountProxyType.UNIFIED].includes(currentAccountProxy.accountType)) {
+        navigate(`/accounts/export/${currentAccountProxy.id}`, { state });
+        setSessionLatest({ ...sessionLatest, timeCalculate: Date.now(), remind: false, isFinished: true });
+      } else {
+        activeModal(AccountSelectorModalId);
+        setSessionLatest({ ...sessionLatest, timeCalculate: Date.now(), remind: false });
+      }
+    } else {
       activeModal(AccountSelectorModalId);
       setSessionLatest({ ...sessionLatest, timeCalculate: Date.now(), remind: false });
-    } else if (currentAccount?.address) {
-      navigate(`/accounts/export/${currentAccount?.address}`, { state });
-      setSessionLatest({ ...sessionLatest, timeCalculate: Date.now(), remind: false, isFinished: true });
     }
-  }, [activeModal, currentAccount?.address, currentAccount?.isExternal, inactiveModal, isAllAccount, location, navigate, sessionLatest, setSessionLatest]);
+  }, [activeModal, currentAccountProxy, inactiveModal, location.pathname, location.state, navigate, sessionLatest, setSessionLatest]);
 
   useEffect(() => {
     if (!sessionLatest.remind) {
@@ -77,14 +85,14 @@ function Component ({ className }: Props): React.ReactElement<Props> {
           onClick={onCancel}
           schema={'secondary'}
         >
-          {t('I’ve backed up')}
+          {t('ui.ACCOUNT.components.Modal.RemindBackupSeedPhrase.iveBackedUp')}
         </Button>
 
         <Button
           block={true}
           onClick={onExport}
         >
-          {t('Back up now')}
+          {t('ui.ACCOUNT.components.Modal.RemindBackupSeedPhrase.backUpNow')}
         </Button>
       </>
     );
@@ -99,7 +107,7 @@ function Component ({ className }: Props): React.ReactElement<Props> {
         id={RemindBackupSeedPhraseModalId}
         maskClosable={false}
         onCancel={onCancel}
-        title={t('Back up your seed phrase!')}
+        title={t('ui.ACCOUNT.components.Modal.RemindBackupSeedPhrase.backUpYourSeedPhrase')}
       >
         <div className={'__modal-content'}>
           <PageIcon
@@ -110,14 +118,18 @@ function Component ({ className }: Props): React.ReactElement<Props> {
             }}
           />
           <div className='__modal-description'>
-            {t(' Once your seed phrase is lost, there is no way to recover your account. Back up now to secure your funds or learn how to with')}
-            <a
-              className={'__modal-user-guide'}
-              href={`${USER_GUIDE_URL}${DomainUserGuide}`}
-              target='__blank'
-            >
-              {t('our user guide.')}
-            </a>
+            <Trans
+              components={{
+                highlight: (
+                  <a
+                    className={'__modal-user-guide'}
+                    href={`${USER_GUIDE_URL}${DomainUserGuide}`}
+                    target='__blank'
+                  />
+                )
+              }}
+              i18nKey={detectTranslate('ui.ACCOUNT.components.Modal.RemindBackupSeedPhrase.seedPhraseLostWarning')}
+            />
           </div>
         </div>
       </SwModal>

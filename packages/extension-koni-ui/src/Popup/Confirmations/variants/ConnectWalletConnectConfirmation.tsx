@@ -3,6 +3,7 @@
 
 import { WALLET_CONNECT_EIP155_NAMESPACE, WALLET_CONNECT_POLKADOT_NAMESPACE } from '@subwallet/extension-base/services/wallet-connect-service/constants';
 import { WalletConnectSessionRequest } from '@subwallet/extension-base/services/wallet-connect-service/types';
+import { AccountChainType } from '@subwallet/extension-base/types';
 import { AddNetworkWCModal, AlertBox, ConfirmationGeneralInfo, WCAccountSelect, WCNetworkSelected, WCNetworkSupported } from '@subwallet/extension-koni-ui/components';
 import { ADD_NETWORK_WALLET_CONNECT_MODAL, TIME_OUT_RECORD } from '@subwallet/extension-koni-ui/constants';
 import { useNotification, useSelectWalletConnectAccount, useSetSelectedAccountTypes } from '@subwallet/extension-koni-ui/hooks';
@@ -42,13 +43,16 @@ function Component ({ className, request }: Props) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const notification = useNotification();
+
+  // todo: deprecated, recheck usage
   const setSelectedAccountTypes = useSetSelectedAccountTypes(true);
+
   const [blockAddNetwork, setBlockAddNetwork] = useState(false);
   const [networkNeedToImport, setNetworkNeedToImport] = useState<string[]>([]);
 
-  const nameSpaceNameMap = useMemo((): Record<string, string> => ({
-    [WALLET_CONNECT_EIP155_NAMESPACE]: t('EVM networks'),
-    [WALLET_CONNECT_POLKADOT_NAMESPACE]: t('Substrate networks')
+  const accountTypeNameMap = useMemo((): Record<string, string> => ({
+    [AccountChainType.ETHEREUM]: t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.evmAccounts'),
+    [AccountChainType.SUBSTRATE]: t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.substrateAccounts')
   }), [t]);
   const { activeModal, inactiveModal } = useContext(ModalContext);
 
@@ -70,8 +74,8 @@ function Component ({ className, request }: Props) {
     onApplyAccounts,
     onCancelSelectAccounts,
     onSelectAccount,
+    supportOneAccountType,
     supportOneChain,
-    supportOneNamespace,
     supportedChains } = useSelectWalletConnectAccount(params);
 
   const allowSubmit = useMemo(() => {
@@ -114,6 +118,12 @@ function Component ({ className, request }: Props) {
 
     return needConnectedNetwork;
   }, [isUnSupportCase, namespaceAccounts]);
+
+  const hasNoNamespaceAccounts = useMemo(
+    () => Object.values(namespaceAccounts).length === 0,
+    [namespaceAccounts]
+  );
+
   const [loading, setLoading] = useState(false);
 
   const _onSelectAccount = useCallback((namespace: string): ((address: string, applyImmediately?: boolean) => VoidFunction) => {
@@ -134,7 +144,10 @@ function Component ({ className, request }: Props) {
 
   const onConfirm = useCallback(() => {
     setLoading(true);
-    const selectedAccounts = Object.values(namespaceAccounts).map(({ appliedAccounts }) => appliedAccounts).flat();
+    const selectedAccounts = Object.values(namespaceAccounts)
+      .flatMap(({ appliedAccounts, networks }) => {
+        return networks.flatMap(({ wcChain }) => appliedAccounts.map((address) => `${wcChain}:${address}`));
+      });
 
     handleConfirm(request, selectedAccounts)
       .catch((e) => {
@@ -168,7 +181,7 @@ function Component ({ className, request }: Props) {
     };
   }, [onCancelSelectAccounts]);
 
-  const isSupportCase = !isUnSupportCase && !isExpired && !noNetwork;
+  const isSupportCase = !isUnSupportCase && !isExpired && !noNetwork && !hasNoNamespaceAccounts;
 
   useEffect(() => {
     if (checkNetworksConnected.length > 0 && !blockAddNetwork && !isExitedAnotherUnsupportedNamespace) {
@@ -190,11 +203,11 @@ function Component ({ className, request }: Props) {
       <div className={CN('confirmation-content', className)}>
         <ConfirmationGeneralInfo request={request} />
         {
-          (isUnSupportCase || blockAddNetwork) && (
+          (isUnSupportCase || blockAddNetwork || hasNoNamespaceAccounts) && (
             <>
               <AlertBox
-                description={t('There is at least 1 chosen network unavailable')}
-                title={t('Unsupported network')}
+                description={t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.atLeastOneNetworkUnavailable')}
+                title={t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.unsupportedNetwork')}
                 type='warning'
               />
               <WCNetworkSupported
@@ -208,8 +221,8 @@ function Component ({ className, request }: Props) {
           noNetwork && (
             (
               <AlertBox
-                description={t('We are unable to detect any network from the dApp through WalletConnect')}
-                title={t('Network undetected')}
+                description={t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.unableToDetectNetworkWc')}
+                title={t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.networkUndetected')}
                 type='warning'
               />
             )
@@ -219,8 +232,8 @@ function Component ({ className, request }: Props) {
           !isUnSupportCase && !noNetwork && isExpired && (
             <>
               <AlertBox
-                description={t('Connection expired. Please create a new connection from dApp')}
-                title={t('Connection expired')}
+                description={t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.connectionExpiredCreateNew')}
+                title={t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.connectionExpired')}
                 type='warning'
               />
             </>
@@ -231,17 +244,17 @@ function Component ({ className, request }: Props) {
             <div className='namespaces-list'>
               {
                 Object.entries(namespaceAccounts).map(([namespace, value]) => {
-                  const { appliedAccounts, availableAccounts, networks, selectedAccounts } = value;
+                  const { accountType, appliedAccounts, availableAccounts, networks, selectedAccounts } = value;
 
                   return (
                     <div
-                      className={CN('namespace-container', { 'space-xs': !supportOneNamespace })}
+                      className={CN('namespace-container', { 'space-xs': !supportOneAccountType })}
                       key={namespace}
                     >
                       {!supportOneChain && (
                         <>
                           <div className='namespace-title'>
-                            {supportOneNamespace ? t('Networks') : nameSpaceNameMap[namespace]}
+                            {supportOneAccountType ? t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.networks') : accountTypeNameMap[namespace]}
                           </div>
                           <WCNetworkSelected
                             id={`${namespace}-networks`}
@@ -250,13 +263,14 @@ function Component ({ className, request }: Props) {
                         </>
                       )}
                       {
-                        supportOneNamespace && (
+                        supportOneAccountType && (
                           <div className='account-list-title'>
-                            {t('Choose the account(s) you’d like to connect')}
+                            {t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.chooseAccountsToConnect')}
                           </div>
                         )
                       }
                       <WCAccountSelect
+                        accountType={accountType}
                         appliedAccounts={appliedAccounts}
                         availableAccounts={availableAccounts}
                         id={`${namespace}-accounts`}
@@ -265,7 +279,7 @@ function Component ({ className, request }: Props) {
                         onCancel={onCancelModal(namespace)}
                         onSelectAccount={_onSelectAccount(namespace)}
                         selectedAccounts={selectedAccounts}
-                        useModal={!supportOneNamespace}
+                        useModal={!supportOneAccountType}
                       />
                     </div>
                   );
@@ -289,7 +303,7 @@ function Component ({ className, request }: Props) {
               onClick={onCancel}
               schema={'secondary'}
             >
-              {t('Cancel')}
+              {t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.cancel')}
             </Button>
           )
         }
@@ -308,7 +322,7 @@ function Component ({ className, request }: Props) {
                 onClick={onCancel}
                 schema={'secondary'}
               >
-                {t('Cancel')}
+                {t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.cancel')}
               </Button>
               <Button
                 disabled={!allowSubmit}
@@ -321,7 +335,7 @@ function Component ({ className, request }: Props) {
                 loading={loading}
                 onClick={onConfirm}
               >
-                {t('Approve')}
+                {t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.approve')}
               </Button>
             </>
           )
@@ -341,7 +355,7 @@ function Component ({ className, request }: Props) {
                   onClick={onCancel}
                   schema={'secondary'}
                 >
-                  {t('Cancel')}
+                  {t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.cancel')}
                 </Button>
                 <Button
                   disabled={loading}
@@ -353,7 +367,7 @@ function Component ({ className, request }: Props) {
                   )}
                   onClick={onAddAccount}
                 >
-                  {t('Create one')}
+                  {t('ui.WALLET_CONNECT.Confirmations.ConnectWalletConnect.createOne')}
                 </Button>
               </>
             )

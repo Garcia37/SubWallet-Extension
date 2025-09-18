@@ -3,8 +3,10 @@
 
 import { RequestBondingSubmit, StakingType } from '@subwallet/extension-base/background/KoniTypes';
 import { getValidatorLabel } from '@subwallet/extension-base/koni/api/staking/bonding/utils';
+import { AlertBox } from '@subwallet/extension-koni-ui/components';
 import CommonTransactionInfo from '@subwallet/extension-koni-ui/components/Confirmation/CommonTransactionInfo';
 import MetaInfo from '@subwallet/extension-koni-ui/components/MetaInfo/MetaInfo';
+import { useGetChainPrefixBySlug } from '@subwallet/extension-koni-ui/hooks';
 import useGetNativeTokenBasicInfo from '@subwallet/extension-koni-ui/hooks/common/useGetNativeTokenBasicInfo';
 import CN from 'classnames';
 import React, { useMemo } from 'react';
@@ -21,9 +23,11 @@ const Component: React.FC<Props> = (props: Props) => {
   const handleValidatorLabel = useMemo(() => {
     return getValidatorLabel(transaction.chain);
   }, [transaction.chain]);
+  const networkPrefix = useGetChainPrefixBySlug(transaction.chain);
+
+  const stakingFee = data.subnetData?.stakingFee;
 
   const { t } = useTranslation();
-
   const { decimals, symbol } = useGetNativeTokenBasicInfo(transaction.chain);
 
   return (
@@ -38,30 +42,43 @@ const Component: React.FC<Props> = (props: Props) => {
       >
         <MetaInfo.AccountGroup
           accounts={data.selectedValidators}
-          content={t(`{{number}} selected ${handleValidatorLabel.toLowerCase()}`, { replace: { number: data.selectedValidators.length } })}
+          content={t('ui.TRANSACTION.Confirmations.Bond.numberSelectedValidator', { replace: { number: data.selectedValidators.length, validatorLabel: handleValidatorLabel.toLowerCase() } })}
+          identPrefix={networkPrefix}
           label={t(data.type === StakingType.POOLED ? 'Pool' : handleValidatorLabel)}
         />
 
         <MetaInfo.Number
           decimals={decimals}
-          label={t('Amount')}
+          label={t('ui.TRANSACTION.Confirmations.Bond.amount')}
           suffix={symbol}
           value={data.amount}
         />
 
         <MetaInfo.Number
           decimals={decimals}
-          label={t('Estimated fee')}
+          label={t('ui.TRANSACTION.Confirmations.Bond.estimatedFee')}
           suffix={symbol}
           value={transaction.estimateFee?.value || 0}
         />
       </MetaInfo>
+      {!!stakingFee && (
+        <AlertBox
+          className={CN(className, 'alert-box')}
+          description={t('ui.TRANSACTION.Confirmations.Bond.taoStakingFeeDeductedInfo', { replace: { fee: stakingFee } })}
+          title={t('ui.TRANSACTION.Confirmations.Bond.taoStakingFee')}
+          type='info'
+        />
+      )}
     </div>
   );
 };
 
 const BondTransactionConfirmation = styled(Component)<Props>(({ theme: { token } }: Props) => {
-  return {};
+  return {
+    '&.alert-box': {
+      marginTop: token.marginSM
+    }
+  };
 });
 
 export default BondTransactionConfirmation;

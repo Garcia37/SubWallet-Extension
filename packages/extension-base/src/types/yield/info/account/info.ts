@@ -57,6 +57,11 @@ export interface AbstractYieldPositionInfo extends BaseYieldPositionInfo {
   unstakings: UnstakingInfo[];
 
   /* Special info */
+  subnetData?: {
+    subnetSymbol: string;
+    subnetShortName: string;
+    originalTotalStake: string;
+  };
 }
 
 /**
@@ -107,7 +112,17 @@ export interface NativeYieldPositionInfo extends AbstractYieldPositionInfo {
   type: YieldPoolType.NATIVE_STAKING;
 }
 
+export interface SubnetYieldPositionInfo extends AbstractYieldPositionInfo {
+  type: YieldPoolType.SUBNET_STAKING;
+  subnetData?: {
+    subnetSymbol: string;
+    subnetShortName: string;
+    originalTotalStake: string;
+    netuid?: number;
+  };
+}
+
 /**
  * Info of yield pool
  * */
-export type YieldPositionInfo = NativeYieldPositionInfo | NominationYieldPositionInfo | LiquidYieldPositionInfo | LendingYieldPositionInfo;
+export type YieldPositionInfo = NativeYieldPositionInfo | NominationYieldPositionInfo | LiquidYieldPositionInfo | LendingYieldPositionInfo | SubnetYieldPositionInfo;

@@ -45,7 +45,13 @@ const _additionalEnv = {
   TRANSAK_TEST_MODE: JSON.stringify(false),
   BANXA_TEST_MODE: JSON.stringify(false),
   INFURA_API_KEY: JSON.stringify(process.env.INFURA_API_KEY),
-  INFURA_API_KEY_SECRET: JSON.stringify(process.env.INFURA_API_KEY_SECRET)
+  INFURA_API_KEY_SECRET: JSON.stringify(process.env.INFURA_API_KEY_SECRET),
+  SUBWALLET_API: JSON.stringify(process.env.SUBWALLET_API),
+  SW_EXTERNAL_SERVICES_API: JSON.stringify(process.env.SW_EXTERNAL_SERVICES_API),
+  MELD_WIZARD_KEY: JSON.stringify(process.env.MELD_WIZARD_KEY),
+  MELD_TEST_MODE: JSON.stringify(false),
+  BTC_SERVICE_TOKEN: JSON.stringify(process.env.BTC_SERVICE_TOKEN),
+  PATCH_CHAIN_LIST_URL: JSON.stringify(process.env.PATCH_CHAIN_LIST_URL)
 };
 
 const additionalEnvDict = {
@@ -144,10 +150,19 @@ module.exports = (entry, alias = {}, isFirefox = false) => {
         chunks: ['extension']
       }),
       new HtmlWebpackPlugin({
+        filename: 'side-panel.html',
+        template: 'public/side-panel.html',
+        chunks: ['extension']
+      }),
+      new HtmlWebpackPlugin({
         filename: 'notification.html',
         template: 'public/notification.html',
         chunks: ['extension']
-      })
+      }),
+      new webpack.NormalModuleReplacementPlugin(
+        /@emurgo\/cardano-serialization-lib-nodejs/,
+        '@emurgo/cardano-serialization-lib-browser'
+      )
     ],
     resolve: {
       alias: packages.reduce((alias, p) => ({
@@ -161,7 +176,7 @@ module.exports = (entry, alias = {}, isFirefox = false) => {
       }),
       extensions: ['.js', '.jsx', '.ts', '.tsx'],
       fallback: {
-        crypto: require.resolve('crypto-browserify'),
+        crypto: false,
         path: require.resolve('path-browserify'),
         stream: require.resolve('stream-browserify'),
         os: require.resolve('os-browserify/browser'),

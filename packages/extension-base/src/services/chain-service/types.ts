@@ -6,7 +6,13 @@
 import type { ApiInterfaceRx } from '@polkadot/api/types';
 
 import { _AssetRef, _AssetType, _ChainAsset, _ChainInfo, _CrowdloanFund } from '@subwallet/chain-list/types';
+import { CardanoBalanceItem } from '@subwallet/extension-base/services/balance-service/helpers/subscribe/cardano/types';
+import { AccountState, TxByMsgResponse } from '@subwallet/extension-base/services/balance-service/helpers/subscribe/ton/types';
+import { BitcoinApiStrategy } from '@subwallet/extension-base/services/chain-service/handler/bitcoin/strategy/types';
 import { _CHAIN_VALIDATION_ERROR } from '@subwallet/extension-base/services/chain-service/handler/types';
+import { TonWalletContract } from '@subwallet/keyring/types';
+import { Cell } from '@ton/core';
+import { Address, Contract, OpenedContract } from '@ton/ton';
 import { BehaviorSubject, Subscription } from 'rxjs';
 import Web3 from 'web3';
 
@@ -18,8 +24,8 @@ import { AnyJson, Registry } from '@polkadot/types/types';
 
 export interface _DataMap {
   chainInfoMap: Record<string, _ChainInfo>,
-  chainStateMap: Record<string, _ChainState>,
   assetRegistry: Record<string, _ChainAsset>,
+  chainStateMap: Record<string, _ChainState>,
   assetRefMap: Record<string, _AssetRef>
 }
 
@@ -127,6 +133,37 @@ export interface _EvmApi extends _ChainBaseApi {
   isReady: Promise<_EvmApi>;
 }
 
+export interface _TonApi extends _ChainBaseApi, _TonUtilsApi {
+  isReady: Promise<_TonApi>;
+}
+
+interface _TonUtilsApi {
+  getBalance (address: Address): Promise<bigint>;
+  open<T extends Contract>(src: T): OpenedContract<T>;
+  estimateExternalMessageFee (walletContract: TonWalletContract, body: Cell, isInit: boolean, ignoreSignature?: boolean): Promise<EstimateExternalMessageFee>;
+  sendTonTransaction (boc: string): Promise<string>;
+  getTxByInMsg (extMsgHash: string): Promise<TxByMsgResponse>;
+  getStatusByExtMsgHash (extMsgHash: string): Promise<[boolean, string]>;
+  getAccountState (address: string): Promise<AccountState>;
+}
+
+export interface _CardanoApi extends _ChainBaseApi, _CardanoUtilsApi {
+  isReady: Promise<_CardanoApi>;
+}
+
+interface _CardanoUtilsApi {
+  getBalanceMap (address: string): Promise<CardanoBalanceItem[]>
+}
+
+export interface EstimateExternalMessageFee {
+  source_fees: {
+    in_fwd_fee: number,
+    storage_fee: number,
+    gas_fee: number,
+    fwd_fee: number
+  }
+}
+
 export type _NetworkUpsertParams = {
   mode: 'update' | 'insert',
   chainEditInfo: {
@@ -171,10 +208,11 @@ export interface EnableMultiChainParams {
 }
 
 export interface _ValidateCustomAssetRequest {
-  contractAddress: string,
+  contractAddress?: string,
   originChain: string,
   type: _AssetType,
-  contractCaller?: string
+  contractCaller?: string,
+  assetId?: string,
 }
 
 export interface _SmartContractTokenInfo {
@@ -202,3 +240,26 @@ export const _NFT_CONTRACT_STANDARDS = [
 ];
 
 export const _SMART_CONTRACT_STANDARDS = [..._FUNGIBLE_CONTRACT_STANDARDS, ..._NFT_CONTRACT_STANDARDS];
+
+export interface BitcoinApiProxy {
+  setBaseUrl: (baseUrl: string) => void,
+  getRequest: (urlPath: string, params?: Record<string, string>, headers?: Record<string, string>) => Promise<Response>,
+  postRequest: (urlPath: string, body?: BodyInit, headers?: Record<string, string>) => Promise<Response>
+}
+
+export interface _BitcoinApi extends _ChainBaseApi {
+  isReady: Promise<_BitcoinApi>;
+  api: BitcoinApiStrategy;
+}
+
+export interface OBResponse<T> {
+  status_code: number,
+  message: string,
+  result: T,
+}
+
+export interface OBRuneResponse<T> {
+  status_code: number,
+  message: string,
+  result: T,
+}

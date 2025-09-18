@@ -1,19 +1,21 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { LedgerNetwork, MigrationLedgerNetwork } from '@subwallet/extension-base/background/KoniTypes';
-import { reformatAddress } from '@subwallet/extension-base/utils';
-import { AccountItemWithName, AccountWithNameSkeleton, BasicOnChangeFunction, ChainSelector, DualLogo, InfoIcon, Layout, PageWrapper } from '@subwallet/extension-koni-ui/components';
-import { ATTACH_ACCOUNT_MODAL, SUBSTRATE_MIGRATION_KEY, USER_GUIDE_URL } from '@subwallet/extension-koni-ui/constants';
+import { LedgerNetwork, MigrationLedgerNetwork, POLKADOT_LEDGER_SCHEME } from '@subwallet/extension-base/background/KoniTypes';
+import { detectTranslate, isSameAddress, reformatAddress } from '@subwallet/extension-base/utils';
+import { AccountItemWithName, AccountWithNameSkeleton, BasicOnChangeFunction, ChainSelector, DualLogo, InfoIcon, Layout, LedgerAccountTypeSelector, LedgerPolkadotAccountItemType, PageWrapper } from '@subwallet/extension-koni-ui/components';
+import { LedgerChainSelector, LedgerItemType } from '@subwallet/extension-koni-ui/components/Field/LedgerChainSelector';
+import { ATTACH_ACCOUNT_MODAL, SUBSTRATE_GENERIC_KEY, SUBSTRATE_MIGRATION_KEY, USER_GUIDE_URL } from '@subwallet/extension-koni-ui/constants';
 import { useAutoNavigateToCreatePassword, useCompleteCreateAccount, useGetSupportedLedger, useGoBackFromCreateAccount, useLedger } from '@subwallet/extension-koni-ui/hooks';
 import { createAccountHardwareMultiple } from '@subwallet/extension-koni-ui/messaging';
 import { RootState } from '@subwallet/extension-koni-ui/stores';
 import { ChainItemType, ThemeProps } from '@subwallet/extension-koni-ui/types';
+import { convertNetworkSlug } from '@subwallet/extension-koni-ui/utils';
 import { BackgroundIcon, Button, Icon, Image, SwList } from '@subwallet/react-ui';
 import CN from 'classnames';
 import { CheckCircle, CircleNotch, Swatches } from 'phosphor-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { useSelector } from 'react-redux';
 import styled from 'styled-components';
 
@@ -32,7 +34,7 @@ export const funcSortByName = (a: ChainItemType, b: ChainItemType) => {
 };
 
 const LIMIT_PER_PAGE = 5;
-const CONNECT_LEDGER_USER_GUIDE_URL = `${USER_GUIDE_URL}/account-management/connect-ledger-device`;
+const CONNECT_LEDGER_USER_GUIDE_URL = `${USER_GUIDE_URL}/cold-wallet-management/connect-ledger-devices`;
 
 const FooterIcon = (
   <Icon
@@ -40,6 +42,32 @@ const FooterIcon = (
     weight='fill'
   />
 );
+
+export const PolkadotLedgerAccountTypeItems: LedgerPolkadotAccountItemType[] = [{
+  name: detectTranslate('ui.ACCOUNT.screen.Account.ConnectLedger.polkadotAccount'),
+  slug: 'polkadot',
+  description: detectTranslate('ui.ACCOUNT.screen.Account.ConnectLedger.polkadotAccountDescription'),
+  scheme: POLKADOT_LEDGER_SCHEME.ED25519
+}, {
+  name: detectTranslate('ui.ACCOUNT.screen.Account.ConnectLedger.ethereumAccount'),
+  slug: 'ethereum',
+  description: detectTranslate('ui.ACCOUNT.screen.Account.ConnectLedger.ethereumAccountDescription'),
+  scheme: POLKADOT_LEDGER_SCHEME.ECDSA
+}];
+
+function generateLedgerAccountName (accountName: string, index: number, address: string, accountMigrateNetworkName?: string, polkadotAccountType?: POLKADOT_LEDGER_SCHEME): string {
+  const isSubstrateECDSAAccount = polkadotAccountType === POLKADOT_LEDGER_SCHEME.ECDSA;
+  const baseName = accountMigrateNetworkName || accountName;
+  let suffix = `${index + 1} - ${address.slice(-4)}`;
+
+  if (accountMigrateNetworkName) {
+    suffix = `(${accountName}) ${suffix}`;
+  } else if (isSubstrateECDSAAccount) {
+    suffix = `(EVM) ${suffix}`;
+  }
+
+  return `Ledger ${baseName} ${suffix}`;
+}
 
 const Component: React.FC<Props> = (props: Props) => {
   useAutoNavigateToCreatePassword();
@@ -54,11 +82,14 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const { accounts } = useSelector((state: RootState) => state.accountState);
 
-  const networks = useMemo((): ChainItemType[] => supportedLedger
+  const networks = useMemo((): LedgerItemType[] => supportedLedger
     .filter(({ isHide }) => !isHide)
     .map((network) => ({
-      name: !network.isGeneric ? network.networkName.replace(' network', '') : network.networkName,
-      slug: network.slug
+      name: !network.isGeneric
+        ? network.networkName.replace(' network', '').concat(network.isRecovery ? ' Recovery' : '')
+        : network.networkName,
+      chain: network.slug,
+      slug: convertNetworkSlug(network)
     })), [supportedLedger]);
 
   const networkMigrates = useMemo((): ChainItemType[] => migrateSupportLedger
@@ -71,6 +102,7 @@ const Component: React.FC<Props> = (props: Props) => {
   const [chain, setChain] = useState(supportedLedger[0].slug);
   const [chainMigrateMode, setChainMigrateMode] = useState<string | undefined>();
   const [ledgerAccounts, setLedgerAccounts] = useState<Array<ImportLedgerItem | null>>([]);
+  const [polkadotAccountType, setPolkadotAccountType] = useState<POLKADOT_LEDGER_SCHEME | undefined>();
   const [firstStep, setFirstStep] = useState(ledgerAccounts.length === 0);
   const [page, setPage] = useState(0);
   const [selectedAccounts, setSelectedAccounts] = useState<ImportLedgerItem[]>([]);
@@ -78,7 +110,7 @@ const Component: React.FC<Props> = (props: Props) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedChain = useMemo((): LedgerNetwork | undefined => {
-    return supportedLedger.find((n) => n.slug === chain);
+    return supportedLedger.find((n) => convertNetworkSlug(n) === chain);
   }, [chain, supportedLedger]);
 
   const selectedChainMigrateMode = useMemo((): MigrationLedgerNetwork | undefined => {
@@ -93,7 +125,7 @@ const Component: React.FC<Props> = (props: Props) => {
     return chainMigrateMode && selectedChain ? `${selectedChain.accountName}` : '';
   }, [chainMigrateMode, migrateSupportLedger]);
 
-  const { error, getAllAddress, isLoading, isLocked, ledger, refresh, warning } = useLedger(chain, true, false, false, selectedChainMigrateMode?.genesisHash);
+  const { error, getAllAddress, isLoading, isLocked, ledger, refresh, warning } = useLedger(selectedChain?.slug, true, false, false, selectedChainMigrateMode?.genesisHash, selectedChain?.isRecovery, polkadotAccountType);
 
   const onPreviousStep = useCallback(() => {
     setFirstStep(true);
@@ -110,6 +142,10 @@ const Component: React.FC<Props> = (props: Props) => {
     if (value === SUBSTRATE_MIGRATION_KEY) {
       setChainMigrateMode(networkMigrates[0].slug);
     } else {
+      if (value !== SUBSTRATE_GENERIC_KEY) {
+        setPolkadotAccountType(undefined);
+      }
+
       setChainMigrateMode(undefined);
     }
 
@@ -120,6 +156,12 @@ const Component: React.FC<Props> = (props: Props) => {
     const value = event.target.value;
 
     setChainMigrateMode(value);
+  }, []);
+
+  const onPolkadotAccountTypeChange: BasicOnChangeFunction = useCallback((event) => {
+    const value = event.target.value;
+
+    setPolkadotAccountType(value as POLKADOT_LEDGER_SCHEME);
   }, []);
 
   const onLoadMore = useCallback(async () => {
@@ -143,7 +185,7 @@ const Component: React.FC<Props> = (props: Props) => {
         (await getAllAddress(start, end)).forEach(({ address }, index) => {
           rs[start + index] = {
             accountIndex: start + index,
-            name: `Ledger ${accountMigrateNetworkName} ${accountMigrateNetworkName ? `(${accountName})` : accountName} ${start + index + 1}`,
+            name: generateLedgerAccountName(accountName, start + index, address, accountMigrateNetworkName, polkadotAccountType),
             address: address
           };
         });
@@ -172,7 +214,7 @@ const Component: React.FC<Props> = (props: Props) => {
     });
 
     loadingFlag.current = false;
-  }, [page, getAllAddress, accountName, accountMigrateNetworkName, refresh]);
+  }, [page, getAllAddress, accountName, accountMigrateNetworkName, polkadotAccountType, refresh]);
 
   const onNextStep = useCallback(() => {
     setFirstStep(false);
@@ -212,20 +254,18 @@ const Component: React.FC<Props> = (props: Props) => {
 
       const selected = !!selectedAccounts.find((it) => it.address === item.address);
       const originAddress = reformatAddress(item.address, 42);
-
-      const existedAccount = accounts.find((acc) => acc.address === originAddress && acc.genesisHash === selectedChain?.genesisHash);
-      const disabled = !!existedAccount;
+      const existedAccount = accounts.some((acc) => isSameAddress(acc.address, originAddress));
 
       return (
         <AccountItemWithName
           accountName={item.name}
           address={item.address}
-          className={CN({ disabled: disabled })}
+          className={CN({ disabled: existedAccount })}
           direction='vertical'
           genesisHash={selectedChain?.genesisHash}
-          isSelected={selected || disabled}
+          isSelected={selected || existedAccount}
           key={key}
-          onClick={disabled ? undefined : onClickItem(selectedAccounts, item)}
+          onClick={existedAccount ? undefined : onClickItem(selectedAccounts, item)}
           showUnselectIcon={true}
         />
       );
@@ -250,7 +290,9 @@ const Component: React.FC<Props> = (props: Props) => {
           hardwareType: 'ledger',
           name: item.name,
           isEthereum: selectedChain.isEthereum,
-          isGeneric: selectedChain.isGeneric
+          isGeneric: selectedChain.isGeneric,
+          isLedgerRecovery: selectedChain?.isRecovery,
+          isSubstrateECDSA: polkadotAccountType === POLKADOT_LEDGER_SCHEME.ECDSA
         }))
       })
         .then(() => {
@@ -263,22 +305,22 @@ const Component: React.FC<Props> = (props: Props) => {
           setIsSubmitting(false);
         });
     }, 300);
-  }, [selectedAccounts, selectedChain, selectedChainMigrateMode?.genesisHash, onComplete]);
+  }, [selectedAccounts, selectedChain, selectedChainMigrateMode?.genesisHash, polkadotAccountType, onComplete]);
 
   useEffect(() => {
     setSelectedAccounts([]);
     setLedgerAccounts([]);
     setPage(0);
-  }, [chain, chainMigrateMode]);
+  }, [chain, chainMigrateMode, polkadotAccountType]);
 
-  const isConnected = !isLocked && !isLoading && !!ledger;
+  const isConnected = !isLocked && !isLoading && !!ledger && (selectedChain?.slug !== SUBSTRATE_GENERIC_KEY || !!polkadotAccountType);
 
   return (
     <PageWrapper className={CN(className)}>
       <Layout.WithSubHeaderOnly
         onBack={firstStep ? onBack : onPreviousStep}
         rightFooterButton={{
-          children: t('Connect Ledger device'),
+          children: t('ui.ACCOUNT.screen.Account.ConnectLedger.connectLedgerDevice'),
           icon: FooterIcon,
           disabled: !isConnected || (!firstStep && !(selectedAccounts.length > 0)),
           onClick: firstStep ? onNextStep : onSubmit,
@@ -290,23 +332,29 @@ const Component: React.FC<Props> = (props: Props) => {
             onClick: goUserGuide
           }
         ]}
-        title={t('Connect Ledger device')}
+        title={t('ui.ACCOUNT.screen.Account.ConnectLedger.connectLedgerDevice')}
       >
         <div className={CN('container')}>
           <div className='sub-title'>
-            {t('Unlock your Ledger and open the selected app. For more information regarding Polkadot and Polkadot Migration app, click ')}
-            <a
-              href={CONNECT_LEDGER_USER_GUIDE_URL}
-              target='__blank'
-            >
-              {t('here')}
-            </a>
+            <Trans
+              components={{
+                highlight: (
+                  <a
+                    className='link'
+                    href={CONNECT_LEDGER_USER_GUIDE_URL}
+                    target='__blank'
+                  />
+                )
+              }}
+              i18nKey={detectTranslate('ui.ACCOUNT.screen.Account.ConnectLedger.unlockLedgerInstruction')}
+            />
           </div>
           {
             firstStep && (
               <>
                 <div className='logo'>
                   <DualLogo
+                    innerSize={52}
                     leftLogo={(
                       <Image
                         height={52}
@@ -323,29 +371,38 @@ const Component: React.FC<Props> = (props: Props) => {
                         width={52}
                       />
                     )}
-                    innerSize={52}
                     sizeLinkIcon={36}
                     sizeSquircleBorder={108}
                   />
                 </div>
-                <ChainSelector
-                  items={networks}
-                  label={t('Select Ledger app')}
-                  onChange={onChainChange}
-                  placeholder={t('Select Ledger app')}
-                  value={chain}
+                <LedgerChainSelector
                   className={'select-ledger-app'}
+                  items={networks}
+                  label={t('ui.ACCOUNT.screen.Account.ConnectLedger.selectLedgerApp')}
+                  onChange={onChainChange}
+                  placeholder={t('ui.ACCOUNT.screen.Account.ConnectLedger.selectLedgerApp')}
+                  value={chain}
                 />
                 {
                   !!chainMigrateMode && <ChainSelector
                     className={'ledger-chain-migrate-select'}
                     id={'migrate-chain-select-modal-id'}
                     items={networkMigrates}
-                    label={t('Select network')}
-                    messageTooltip={'To use this network, choose Polkadot Ledger app'}
+                    label={t('ui.ACCOUNT.screen.Account.ConnectLedger.selectNetwork')}
+                    messageTooltip={t('ui.ACCOUNT.screen.Account.ConnectLedger.choosePolkadotLedgerApp')}
                     onChange={onMigrateChainChange}
-                    placeholder={t('Select network')}
+                    placeholder={t('ui.ACCOUNT.screen.Account.ConnectLedger.selectNetwork')}
                     value={chainMigrateMode}
+                  />
+                }
+
+                {
+                  selectedChain?.slug === SUBSTRATE_GENERIC_KEY && <LedgerAccountTypeSelector
+                    className={'polkadot-ledger-account-type-select'}
+                    id={'account-type-select-modal-id'}
+                    items={PolkadotLedgerAccountTypeItems}
+                    onChange={onPolkadotAccountTypeChange}
+                    value={polkadotAccountType}
                   />
                 }
                 <Button
@@ -366,11 +423,11 @@ const Component: React.FC<Props> = (props: Props) => {
                   <div className='ledger-button-content'>
                     <span className='ledger-info-text'>
                       {isConnected
-                        ? t('Device found')
+                        ? t('ui.ACCOUNT.screen.Account.ConnectLedger.deviceFound')
                         : warning || error || (
                           ledger
-                            ? t('Loading')
-                            : t('Searching Ledger device')
+                            ? t('ui.ACCOUNT.screen.Account.ConnectLedger.loading')
+                            : t('ui.ACCOUNT.screen.Account.ConnectLedger.searchingLedgerDevice')
                         )
                       }
                     </span>
@@ -416,7 +473,7 @@ const ConnectLedger = styled(Component)<Props>(({ theme: { token } }: Props) => 
     '.ant-sw-screen-layout-body': {
       overflow: 'hidden'
     },
-    '.select-ledger-app, .ledger-chain-migrate-select': {
+    '.select-ledger-app, .ledger-chain-migrate-select, .polkadot-ledger-account-type-select': {
       '.ant-image-img': {
         width: `${token.sizeMD}px !important`,
         height: `${token.sizeMD}px !important`
@@ -510,7 +567,7 @@ const ConnectLedger = styled(Component)<Props>(({ theme: { token } }: Props) => 
       }
     },
 
-    '.ledger-chain-migrate-select': {
+    '.ledger-chain-migrate-select, .polkadot-ledger-account-type-select': {
       marginTop: token.marginXS
     }
   };

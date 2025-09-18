@@ -3,7 +3,7 @@
 
 import { Layout } from '@subwallet/extension-koni-ui/components';
 import { USER_GUIDE_URL } from '@subwallet/extension-koni-ui/constants';
-import { setValueLocalStorage } from '@subwallet/extension-koni-ui/messaging';
+import { setValueLocalStorageWS } from '@subwallet/extension-koni-ui/messaging';
 import { Theme, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { Icon, PageIcon } from '@subwallet/react-ui';
 import CN from 'classnames';
@@ -26,12 +26,12 @@ const Component: React.FC<Props> = (props: Props) => {
   const { token } = useTheme() as Theme;
   const learnMore = useCallback(() => {
     window.open(`${USER_GUIDE_URL}/${SUB_DOMAIN_USER_GUIDE}`);
-    setValueLocalStorage(valueStorage)
+    setValueLocalStorageWS(valueStorage)
       .catch(console.error);
   }, []);
 
   const dismiss = useCallback(() => {
-    setValueLocalStorage(valueStorage)
+    setValueLocalStorageWS(valueStorage)
       .catch(console.error);
     window.close();
   }, []);
@@ -50,7 +50,7 @@ const Component: React.FC<Props> = (props: Props) => {
   return (
     <Layout.WithSubHeaderOnly
       leftFooterButton={{
-        children: t('Dismiss'),
+        children: t('ui.ACCOUNT.screen.RemindExportAccount.dismiss'),
         onClick: dismiss,
         schema: 'secondary',
         icon: <Icon
@@ -59,7 +59,7 @@ const Component: React.FC<Props> = (props: Props) => {
         />
       }}
       rightFooterButton={{
-        children: t('Learn more'),
+        children: t('ui.ACCOUNT.screen.RemindExportAccount.learnMore'),
         onClick: learnMore,
         icon: <Icon
           phosphorIcon={ArrowCircleRight}
@@ -73,7 +73,7 @@ const Component: React.FC<Props> = (props: Props) => {
           size='md'
         />
       )}
-      title={t('Pay attention')}
+      title={t('ui.ACCOUNT.screen.RemindExportAccount.payAttention')}
     >
       <div className={CN(className)}>
         <div className='page-icon'>
@@ -86,10 +86,10 @@ const Component: React.FC<Props> = (props: Props) => {
           />
         </div>
         <div className='title'>
-          {t('Back up your accounts!')}
+          {t('ui.ACCOUNT.screen.RemindExportAccount.backUpYourAccounts')}
         </div>
         <div className='description'>
-          {t('If you lose your seed phrases/private keys/JSON backup files/QR backup codes, your accounts can\'t be recovered and your assets are lost. Learn how to back up your accounts to secure your assets now.')}
+          {t('ui.ACCOUNT.screen.RemindExportAccount.backupToSecureAssetsWarning')}
         </div>
       </div>
     </Layout.WithSubHeaderOnly>

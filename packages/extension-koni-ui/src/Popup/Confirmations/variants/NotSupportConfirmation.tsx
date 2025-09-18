@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ConfirmationResult } from '@subwallet/extension-base/background/KoniTypes';
-import { AccountJson, ConfirmationRequestBase } from '@subwallet/extension-base/background/types';
+import { ConfirmationRequestBase } from '@subwallet/extension-base/background/types';
+import { AccountJson } from '@subwallet/extension-base/types';
 import { detectTranslate } from '@subwallet/extension-base/utils';
-import { AccountItemWithName, ConfirmationGeneralInfo } from '@subwallet/extension-koni-ui/components';
+import { AccountItemWithProxyAvatar, ConfirmationGeneralInfo } from '@subwallet/extension-koni-ui/components';
 import { NEED_SIGN_CONFIRMATION } from '@subwallet/extension-koni-ui/constants';
 import { useGetAccountTitleByAddress } from '@subwallet/extension-koni-ui/hooks';
 import { cancelSignRequest, completeConfirmation } from '@subwallet/extension-koni-ui/messaging';
@@ -71,7 +72,7 @@ const Component: React.FC<Props> = (props: Props) => {
       <div className={CN('confirmation-content', className)}>
         <ConfirmationGeneralInfo request={request} />
         <div className='title'>
-          { isMessage ? t('Signature required') : t('Transaction request')}
+          { isMessage ? t('ui.Confirmations.NotSupport.signatureRequired') : t('ui.Confirmations.NotSupport.transactionRequest')}
         </div>
         <div className='description'>
           <Trans
@@ -80,24 +81,22 @@ const Component: React.FC<Props> = (props: Props) => {
                 <span className='highlight' />
               )
             }}
-            i18nKey={detectTranslate('Feature not available for <highlight>{{accountTitle}}</highlight>. Change to another account type and try again.')}
+            i18nKey={detectTranslate('ui.Confirmations.NotSupport.featureNotAvailableForAccountType')}
             values={{ accountTitle }}
           />
         </div>
-        <AccountItemWithName
-          accountName={account?.name}
-          address={account?.address || ''}
-          avatarSize={24}
+        {account && <AccountItemWithProxyAvatar
+          account={account}
           className='account-item'
           showUnselectIcon={true}
-        />
+        />}
       </div>
       <div className='confirmation-footer'>
         <Button
           loading={loading}
           onClick={handleCancel}
         >
-          {t('Back to home')}
+          {t('ui.Confirmations.NotSupport.backToHome')}
         </Button>
       </div>
     </>
@@ -111,14 +110,12 @@ const NotSupportConfirmation = styled(Component)<Props>(({ theme: { token } }: P
     },
 
     '.account-item': {
-      '.ant-web3-block': {
-        cursor: 'not-allowed',
-        opacity: token.opacityDisable
-      },
+      cursor: 'not-allowed',
+      opacity: token.opacityDisable,
+      background: token.colorBgSecondary,
 
-      '.ant-web3-block:hover': {
-        cursor: 'not-allowed',
-        background: token.colorBgSecondary
+      '&:hover': {
+        cursor: 'not-allowed'
       }
     }
   };

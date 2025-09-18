@@ -4,6 +4,7 @@
 export type { BaseTransactionConfirmationProps } from './Base';
 export { default as BaseTransactionConfirmation } from './Base';
 export { default as BondTransactionConfirmation } from './Bond';
+export { default as ClaimBridgeTransactionConfirmation } from './ClaimBridge';
 export { default as CancelUnstakeTransactionConfirmation } from './CancelUnstake';
 export { default as ClaimRewardTransactionConfirmation } from './ClaimReward';
 export { default as JoinPoolTransactionConfirmation } from './JoinPool';
@@ -16,5 +17,7 @@ export { default as FastWithdrawTransactionConfirmation } from './FastWithdraw';
 export { default as JoinYieldPoolConfirmation } from './JoinYieldPool';
 export { default as TokenApproveConfirmation } from './TokenApprove';
 export { default as SwapTransactionConfirmation } from './Swap';
+export { default as ChangeEarningValidatorTransactionConfirmation } from './ChangeEarningValidator';
 
 export * from './TransferBlock';
+export * from './Process';

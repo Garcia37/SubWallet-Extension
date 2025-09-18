@@ -2,14 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { _AssetType, _ChainInfo } from '@subwallet/chain-list/types';
-import { _getTokenTypesSupportedByChain, _isChainTestNet, _parseMetadataForSmartContractAsset } from '@subwallet/extension-base/services/chain-service/utils';
+import { _getTokenTypesSupportedByChain, _isChainTestNet, _parseMetadataForAssetId, _parseMetadataForSmartContractAsset } from '@subwallet/extension-base/services/chain-service/utils';
 import { isValidSubstrateAddress } from '@subwallet/extension-base/utils';
-import { AddressInput, ChainSelector, Layout, PageWrapper, TokenTypeSelector } from '@subwallet/extension-koni-ui/components';
+import { AddressInput, ChainSelector, HiddenInput, Layout, PageWrapper, TokenTypeSelector } from '@subwallet/extension-koni-ui/components';
 import { DataContext } from '@subwallet/extension-koni-ui/contexts/DataContext';
 import { useChainChecker, useDefaultNavigate, useGetChainPrefixBySlug, useGetFungibleContractSupportedChains, useNotification, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { upsertCustomToken, validateCustomToken } from '@subwallet/extension-koni-ui/messaging';
 import { FormCallbacks, FormRule, Theme, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { convertFieldToError, convertFieldToObject, reformatAddress, simpleCheckForm } from '@subwallet/extension-koni-ui/utils';
+import { reformatContractAddress } from '@subwallet/extension-koni-ui/utils/account/reformatContractAddress';
 import { Col, Field, Form, Icon, Input, Row } from '@subwallet/react-ui';
 import SwAvatar from '@subwallet/react-ui/es/sw-avatar';
 import { PlusCircle } from 'phosphor-react';
@@ -29,11 +30,16 @@ interface TokenImportFormType {
   tokenName: string;
   decimals: number;
   symbol: string;
+  assetId?: string;
 }
 
 interface TokenTypeOption {
   label: string,
   value: _AssetType
+}
+
+function isAssetHubChain (chainslug: string) {
+  return ['statemint', 'statemine'].includes(chainslug);
 }
 
 function getTokenTypeSupported (chainInfo: _ChainInfo) {
@@ -103,9 +109,16 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
   const contractRules = useMemo((): FormRule[] => {
     return [
       ({ getFieldValue }) => ({
+        transform: (contractAddress: string) => {
+          const selectedChain = getFieldValue('chain') as string;
+
+          return reformatContractAddress(selectedChain, contractAddress);
+        },
         validator: (_, contractAddress: string) => {
           return new Promise<void>((resolve, reject) => {
             const selectedTokenType = getFieldValue('type') as _AssetType;
+            const selectedChain = getFieldValue('chain') as string;
+
             const isValidEvmContract = [_AssetType.ERC20].includes(selectedTokenType) && isEthereumAddress(contractAddress);
             const isValidWasmContract = [_AssetType.PSP22].includes(selectedTokenType) && isValidSubstrateAddress(contractAddress);
             const isValidGearContract = [_AssetType.VFT].includes(selectedTokenType) && isValidSubstrateAddress(contractAddress);
@@ -122,11 +135,11 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                   setLoading(false);
 
                   if (validationResult.isExist) {
-                    reject(new Error(t('Existed token')));
+                    reject(new Error(t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.existedToken')));
                   }
 
                   if (validationResult.contractError) {
-                    reject(new Error(t('Error validating this token')));
+                    reject(new Error(t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.errorValidatingToken')));
                   }
 
                   if (!validationResult.isExist && !validationResult.contractError) {
@@ -141,25 +154,72 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                 })
                 .catch(() => {
                   setLoading(false);
-                  reject(new Error(t('Error validating this token')));
+                  reject(new Error(t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.errorValidatingToken')));
                 });
             } else {
-              reject(t('Invalid contract address'));
+              reject(t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.invalidContractAddress'));
             }
           });
         }
       })
     ];
-  }, [chainNetworkPrefix, form, selectedChain, t]);
+  }, [chainNetworkPrefix, form, t]);
+
+  const assetIdRules = useMemo((): FormRule[] => {
+    return [
+      ({ getFieldValue }) => ({
+        validator: (_, assetId: string) => {
+          return new Promise<void>((resolve, reject) => {
+            const selectedTokenType = getFieldValue('type') as _AssetType;
+
+            setLoading(true);
+            validateCustomToken({
+              originChain: selectedChain,
+              type: selectedTokenType,
+              assetId: assetId
+            })
+              .then((validationResult) => {
+                setLoading(false);
+
+                if (validationResult.isExist) {
+                  reject(new Error(t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.existedToken')));
+                }
+
+                if (validationResult.contractError) {
+                  reject(new Error(t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.invalidAssetId')));
+                }
+
+                if (!validationResult.isExist && !validationResult.contractError) {
+                  form.setFieldValue('tokenName', validationResult.name);
+                  form.setFieldsValue({
+                    tokenName: validationResult.name,
+                    decimals: validationResult.decimals,
+                    symbol: validationResult.symbol
+                  });
+                  resolve();
+                }
+              })
+              .catch(() => {
+                setLoading(false);
+                reject(new Error(t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.errorValidatingToken')));
+              });
+          });
+        }
+      })
+    ];
+  }, [form, selectedChain, t]);
+
+  const hideFields = useMemo(() => !isAssetHubChain(selectedChain) ? ['assetId'] : ['contractAddress'], [selectedChain]);
 
   const onFieldChange: FormCallbacks<TokenImportFormType>['onFieldsChange'] = useCallback((changedFields: FieldData[], allFields: FieldData[]) => {
-    const { empty, error } = simpleCheckForm(allFields, ['--priceId', '--tokenName']);
+    const { empty, error } = simpleCheckForm(allFields, ['--priceId', '--tokenName', '--contractAddress', '--assetId']);
 
     const changes = convertFieldToObject<TokenImportFormType>(changedFields);
     const all = convertFieldToObject<TokenImportFormType>(allFields);
     const allError = convertFieldToError<TokenImportFormType>(allFields);
 
-    const { chain, type } = changes;
+    const { chain, contractAddress, type } = changes;
+    const { chain: selectedChain } = all;
 
     const baseResetFields = ['tokenName', 'symbol', 'decimals', 'priceId'];
 
@@ -173,21 +233,27 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
       }
 
       form.resetFields(['contractAddress', ...baseResetFields]);
+      form.resetFields(['assetId', ...baseResetFields]);
     }
 
     if (type) {
       form.resetFields(['contractAddress', ...baseResetFields]);
+      form.resetFields(['assetId', ...baseResetFields]);
     }
 
-    if (allError.contractAddress.length > 0) {
+    if (contractAddress) {
+      form.setFieldValue('contractAddress', reformatContractAddress(selectedChain, contractAddress));
+    }
+
+    if (allError.contractAddress.length > 0 || allError.assetId.length > 0) {
       form.resetFields([...baseResetFields]);
     }
 
-    setFieldDisabled(!all.chain || !all.type || allError.contractAddress.length > 0);
+    setFieldDisabled(!all.chain || !all.type || allError.contractAddress.length > 0 || allError.assetId.length > 0);
     setIsDisabled(empty || error);
   }, [chainInfoMap, form]);
 
-  const onSubmit: FormCallbacks<TokenImportFormType>['onFinish'] = useCallback((formValues: TokenImportFormType) => {
+  const onSubmitContractAddress: FormCallbacks<TokenImportFormType>['onFinish'] = useCallback((formValues: TokenImportFormType) => {
     const { chain, contractAddress, decimals, priceId, symbol, tokenName, type } = formValues;
 
     const reformattedAddress = type === _AssetType.VFT ? contractAddress : reformatAddress(contractAddress, chainNetworkPrefix);
@@ -211,24 +277,67 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
       .then((result) => {
         if (result) {
           showNotification({
-            message: t('Imported token successfully')
+            message: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.importedTokenSuccessfully')
           });
           goBack();
         } else {
           showNotification({
-            message: t('An error occurred, please try again')
+            message: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.anErrorOccurredPleaseTryAgain')
           });
         }
       })
       .catch(() => {
         showNotification({
-          message: t('An error occurred, please try again')
+          message: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.anErrorOccurredPleaseTryAgain')
         });
       })
       .finally(() => {
         setLoading(false);
       });
   }, [chainNetworkPrefix, chainInfoMap, showNotification, t, goBack]);
+
+  const onSubmitAssetId: FormCallbacks<TokenImportFormType>['onFinish'] = useCallback((formValues: TokenImportFormType) => {
+    const { assetId, chain, decimals, priceId, symbol, tokenName, type } = formValues;
+
+    if (assetId) {
+      setLoading(true);
+
+      upsertCustomToken({
+        originChain: chain,
+        slug: '',
+        name: tokenName || symbol,
+        symbol,
+        decimals,
+        priceId: priceId || null,
+        minAmount: null,
+        assetType: type,
+        metadata: _parseMetadataForAssetId(assetId),
+        multiChainAsset: null,
+        hasValue: _isChainTestNet(chainInfoMap[formValues.chain]),
+        icon: 'default.png'
+      })
+        .then((result) => {
+          if (result) {
+            showNotification({
+              message: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.importedTokenSuccessfully')
+            });
+            goBack();
+          } else {
+            showNotification({
+              message: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.anErrorOccurredPleaseTryAgain')
+            });
+          }
+        })
+        .catch(() => {
+          showNotification({
+            message: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.anErrorOccurredPleaseTryAgain')
+          });
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [chainInfoMap, showNotification, t, goBack]);
 
   const tokenDecimalsPrefix = useCallback(() => {
     const contractAddress = form.getFieldValue('contractAddress') as string;
@@ -267,9 +376,9 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
           ),
           loading,
           onClick: form.submit,
-          children: t('Import token')
+          children: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.importToken')
         }}
-        title={t<string>('Import token')}
+        title={t<string>('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.importToken')}
       >
         <div className={'import_token__container'}>
           <Form
@@ -278,7 +387,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
             initialValues={formDefault}
             name={'token-import'}
             onFieldsChange={onFieldChange}
-            onFinish={onSubmit}
+            onFinish={!isAssetHubChain(selectedChain) ? onSubmitContractAddress : onSubmitAssetId}
           >
             <Form.Item
               name={'chain'}
@@ -287,9 +396,9 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                 className={className}
                 id='import-nft-select-chain'
                 items={chains}
-                label={t<string>('Network')}
-                placeholder={t('Select network')}
-                title={t('Select network')}
+                label={t<string>('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.network')}
+                placeholder={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.selectNetwork')}
+                title={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.selectNetwork')}
               />
             </Form.Item>
 
@@ -300,23 +409,41 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                 className={className}
                 disabled={!selectedChain}
                 items={tokenTypeOptions}
-                placeholder={t('Select token type')}
-                title={t('Select token type')}
+                placeholder={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.selectTokenType')}
+                title={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.selectTokenType')}
               />
             </Form.Item>
 
-            <Form.Item
-              name={'contractAddress'}
-              rules={contractRules}
-              statusHelpAsTooltip={true}
-            >
-              <AddressInput
-                addressPrefix={chainNetworkPrefix}
-                disabled={!selectedTokenType}
-                label={isSelectGearToken ? t('Program ID') : t('Contract address')}
-                showScanner={true}
-              />
-            </Form.Item>
+            <HiddenInput fields={hideFields} />
+            {
+              !isAssetHubChain(selectedChain)
+                ? (
+                  <Form.Item
+                    name={'contractAddress'}
+                    rules={contractRules}
+                    statusHelpAsTooltip={true}
+                  >
+                    <AddressInput
+                      addressPrefix={chainNetworkPrefix}
+                      disabled={!selectedTokenType}
+                      label={isSelectGearToken ? t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.programId') : t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.contractAddress')}
+                      showScanner={true}
+                    />
+                  </Form.Item>
+                )
+                : <Form.Item
+                  name={'assetId'}
+                  rules={assetIdRules}
+                  statusHelpAsTooltip={true}
+                >
+                  <AddressInput
+                    disabled={!selectedTokenType}
+                    label={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.assetId')}
+                    placeholder={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.typeOrPasteAssetId')}
+                    showScanner={true}
+                  />
+                </Form.Item>
+            }
 
             <Row
               className={'token-symbol-decimals'}
@@ -328,9 +455,9 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                 >
                   <Field
                     content={symbol}
-                    placeholder={t<string>('Symbol')}
+                    placeholder={t<string>('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.symbol')}
                     prefix={tokenDecimalsPrefix()}
-                    tooltip={t('Symbol')}
+                    tooltip={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.symbol')}
                     tooltipPlacement={'topLeft'}
                   />
                 </Form.Item>
@@ -341,8 +468,8 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
                 >
                   <Field
                     content={decimals === -1 ? '' : decimals}
-                    placeholder={t<string>('Decimals')}
-                    tooltip={t('Decimals')}
+                    placeholder={t<string>('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.decimals')}
+                    tooltip={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.decimals')}
                     tooltipPlacement={'topLeft'}
                   />
                 </Form.Item>
@@ -354,15 +481,15 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
               rules={[
                 {
                   required: true,
-                  message: t('Token name is required')
+                  message: t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.tokenNameIsRequired')
                 }
               ]}
               statusHelpAsTooltip={true}
             >
               <Field
                 content={tokenName}
-                placeholder={t<string>('Token name')}
-                tooltip={t('Token name')}
+                placeholder={t<string>('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.tokenName')}
+                tooltip={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.tokenName')}
                 tooltipPlacement={'topLeft'}
               />
             </Form.Item>
@@ -373,8 +500,8 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
             >
               <Input
                 disabled={fieldDisabled}
-                placeholder={t('Price ID')}
-                tooltip={t('Price ID')}
+                placeholder={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.priceId')}
+                tooltip={t('ui.SETTINGS.screen.Setting.Tokens.ImportFungible.priceId')}
               />
             </Form.Item>
           </Form>

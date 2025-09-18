@@ -1,15 +1,17 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { CloseIcon, Layout, PageWrapper, PrivateKeyInput } from '@subwallet/extension-koni-ui/components';
-import { EVM_ACCOUNT_TYPE } from '@subwallet/extension-koni-ui/constants/account';
+import { CloseIcon, HiddenInput, Layout, PageWrapper, PrivateKeyInput } from '@subwallet/extension-koni-ui/components';
 import { IMPORT_ACCOUNT_MODAL } from '@subwallet/extension-koni-ui/constants/modal';
-import { useAutoNavigateToCreatePassword, useCompleteCreateAccount, useDefaultNavigate, useFocusFormItem, useGetDefaultAccountName, useGoBackFromCreateAccount, useTranslation, useUnlockChecker } from '@subwallet/extension-koni-ui/hooks';
-import { createAccountSuriV2, validateMetamaskPrivateKeyV2 } from '@subwallet/extension-koni-ui/messaging';
+import { useAutoNavigateToCreatePassword, useCompleteCreateAccount, useDefaultNavigate, useFocusFormItem, useGoBackFromCreateAccount, useTranslation, useUnlockChecker } from '@subwallet/extension-koni-ui/hooks';
+import { createAccountSuriV2, validateAccountName, validateMetamaskPrivateKeyV2 } from '@subwallet/extension-koni-ui/messaging';
 import { FormCallbacks, ThemeProps, ValidateState } from '@subwallet/extension-koni-ui/types';
-import { Button, Form, Icon } from '@subwallet/react-ui';
+import { simpleCheckForm } from '@subwallet/extension-koni-ui/utils';
+import { KeypairType } from '@subwallet/keyring/types';
+import { Button, Form, Icon, Input } from '@subwallet/react-ui';
 import CN from 'classnames';
 import { Eye, EyeSlash, FileArrowDown } from 'phosphor-react';
+import { Callbacks, FieldData, RuleObject } from 'rc-field-form/lib/interface';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import styled from 'styled-components';
 
@@ -23,10 +25,14 @@ const FooterIcon = (
 );
 
 const formName = 'import-private-key-form';
-const fieldName = 'private-key';
+const privateKeyField = 'private-key';
+const typeField = 'type';
+const hiddenFields = [typeField];
 
 interface FormState {
-  [fieldName]: string;
+  [privateKeyField]: string;
+  [typeField]: KeypairType;
+  name: string;
 }
 
 const Component: React.FC<Props> = ({ className }: Props) => {
@@ -42,21 +48,20 @@ const Component: React.FC<Props> = ({ className }: Props) => {
   // TODO: Change way validate
   const [validateState, setValidateState] = useState<ValidateState>({});
   const [validating, setValidating] = useState(false);
+  const [isDisable, setIsDisable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [show, setShow] = useState(false);
-  const [changed, setChanged] = useState(false);
+  const [privateKeyChanged, setPrivateKeyChanged] = useState(false);
   const [form] = Form.useForm<FormState>();
   const checkUnlock = useUnlockChecker();
 
-  const accountName = useGetDefaultAccountName();
-
   // Auto-focus field
-  useFocusFormItem(form, fieldName);
+  useFocusFormItem(form, privateKeyField);
 
-  const privateKey = Form.useWatch(fieldName, form);
+  const privateKey = Form.useWatch(privateKeyField, form);
 
   const onSubmit: FormCallbacks<FormState>['onFinish'] = useCallback((values: FormState) => {
-    const { [fieldName]: privateKey } = values;
+    const { name: accountName, [privateKeyField]: privateKey, [typeField]: keypairType } = values;
 
     checkUnlock().then(() => {
       if (privateKey?.trim()) {
@@ -65,16 +70,13 @@ const Component: React.FC<Props> = ({ className }: Props) => {
           name: accountName,
           suri: privateKey.trim(),
           isAllowed: true,
-          types: [EVM_ACCOUNT_TYPE]
+          type: keypairType
         })
           .then(() => {
             onComplete();
           })
           .catch((error: Error): void => {
-            setValidateState({
-              status: 'error',
-              message: error.message
-            });
+            form.setFields([{ name: 'name', errors: [error.message] }]);
           })
           .finally(() => {
             setLoading(false);
@@ -82,9 +84,25 @@ const Component: React.FC<Props> = ({ className }: Props) => {
       }
     })
       .catch(() => {
-      // User cancel unlock
+        // User cancel unlock
       });
-  }, [accountName, checkUnlock, onComplete]);
+  }, [checkUnlock, form, onComplete]);
+
+  const accountNameValidator = useCallback(async (validate: RuleObject, value: string) => {
+    if (value) {
+      try {
+        const { isValid } = await validateAccountName({ name: value });
+
+        if (!isValid) {
+          return Promise.reject(t('ui.ACCOUNT.screen.Account.ImportPrivateKey.accountNameInUse'));
+        }
+      } catch (e) {
+        return Promise.reject(t('ui.ACCOUNT.screen.Account.ImportPrivateKey.accountNameInvalid'));
+      }
+    }
+
+    return Promise.resolve();
+  }, [t]);
 
   useEffect(() => {
     let amount = true;
@@ -102,12 +120,14 @@ const Component: React.FC<Props> = ({ className }: Props) => {
         });
 
         timeOutRef.current = setTimeout(() => {
-          validateMetamaskPrivateKeyV2(privateKey.trim(), [EVM_ACCOUNT_TYPE])
-            .then(({ autoAddPrefix }) => {
+          validateMetamaskPrivateKeyV2(privateKey.trim())
+            .then(({ autoAddPrefix, keyTypes }) => {
               if (amount) {
                 if (autoAddPrefix) {
-                  form.setFieldValue(fieldName, `0x${privateKey}`);
+                  form.setFieldValue(privateKeyField, `0x${privateKey}`);
                 }
+
+                form.setFieldValue(typeField, keyTypes[0]);
 
                 setValidateState({});
               }
@@ -127,10 +147,10 @@ const Component: React.FC<Props> = ({ className }: Props) => {
             });
         }, 300);
       } else {
-        if (changed) {
+        if (privateKeyChanged) {
           setValidateState({
             status: 'error',
-            message: t('Private key is required')
+            message: t('ui.ACCOUNT.screen.Account.ImportPrivateKey.privateKeyRequired')
           });
         }
       }
@@ -139,27 +159,39 @@ const Component: React.FC<Props> = ({ className }: Props) => {
     return () => {
       amount = false;
     };
-  }, [privateKey, form, changed, t]);
+  }, [privateKey, form, privateKeyChanged, t]);
 
   const onValuesChange: FormCallbacks<FormState>['onValuesChange'] = useCallback((changedValues: Partial<FormState>) => {
-    if (fieldName in changedValues) {
-      setChanged(true);
+    if (privateKeyField in changedValues) {
+      setPrivateKeyChanged(true);
     }
+  }, []);
+
+  const onFieldsChange: Callbacks<FormState>['onFieldsChange'] = useCallback((changes: FieldData[], allFields: FieldData[]) => {
+    const { empty, error } = simpleCheckForm(allFields);
+
+    setIsDisable(error || empty);
   }, []);
 
   const toggleShow = useCallback(() => {
     setShow((value) => !value);
   }, []);
 
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLFormElement>) => {
+    if (event.key === 'Enter') {
+      form.submit();
+    }
+  }, [form]);
+
   return (
     <PageWrapper className={CN(className)}>
       <Layout.WithSubHeaderOnly
         onBack={onBack}
         rightFooterButton={{
-          children: validating ? t('Validating') : t('Import account'),
+          children: validating ? t('ui.ACCOUNT.screen.Account.ImportPrivateKey.validating') : t('ui.ACCOUNT.screen.Account.ImportPrivateKey.importAccount'),
           icon: FooterIcon,
           onClick: form.submit,
-          disabled: !privateKey || !!validateState.status,
+          disabled: !privateKey || !!validateState.status || isDisable,
           loading: validating || loading
         }}
         subHeaderIcons={[
@@ -168,30 +200,52 @@ const Component: React.FC<Props> = ({ className }: Props) => {
             onClick: goHome
           }
         ]}
-        title={t<string>('Import by private key')}
+        title={t<string>('ui.ACCOUNT.screen.Account.ImportPrivateKey.importFromPrivateKey')}
       >
         <div className='container'>
           <div className='description'>
-            {t('To import an existing wallet, please enter private key')}
+            {t('ui.ACCOUNT.screen.Account.ImportPrivateKey.enterPrivateKeyToImport')}
           </div>
           <Form
             className='form-container'
             form={form}
-            initialValues={{ [fieldName]: '' }}
+            initialValues={{ [privateKeyField]: '', name: '' }}
             name={formName}
+            onFieldsChange={onFieldsChange}
             onFinish={onSubmit}
+            onKeyDown={handleKeyDown}
             onValuesChange={onValuesChange}
           >
+            <HiddenInput fields={hiddenFields} />
             <Form.Item
-              name={fieldName}
+              name={privateKeyField}
               validateStatus={validateState.status}
             >
               <PrivateKeyInput
                 className='private-key-input'
                 hideText={!show}
-                label={t('Private key')}
-                placeholder={t('Enter private key')}
+                label={t('ui.ACCOUNT.screen.Account.ImportPrivateKey.privateKey')}
+                placeholder={t('ui.ACCOUNT.screen.Account.ImportPrivateKey.enterPrivateKey')}
                 statusHelp={validateState.message}
+              />
+            </Form.Item>
+            <Form.Item
+              className={CN('__account-name-field')}
+              name={'name'}
+              rules={[{
+                message: t('ui.ACCOUNT.screen.Account.ImportPrivateKey.accountNameRequired'),
+                transform: (value: string) => value.trim(),
+                required: true
+              }, {
+                validator: accountNameValidator
+              }]}
+              statusHelpAsTooltip={true}
+            >
+              <Input
+                className='__account-name-input'
+                disabled={loading}
+                label={t('ui.ACCOUNT.screen.Account.ImportPrivateKey.accountName')}
+                placeholder={t('ui.ACCOUNT.screen.Account.ImportPrivateKey.enterAccountName')}
               />
             </Form.Item>
             <div className='button-container'>
@@ -206,7 +260,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
                 size='xs'
                 type='ghost'
               >
-                {show ? t('Hide private key') : t('Show private key')}
+                {show ? t('ui.ACCOUNT.screen.Account.ImportPrivateKey.hidePrivateKey') : t('ui.ACCOUNT.screen.Account.ImportPrivateKey.showPrivateKey')}
               </Button>
             </div>
           </Form>

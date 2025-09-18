@@ -5,7 +5,8 @@ import { FilterModal, Layout } from '@subwallet/extension-koni-ui/components';
 import EmptyList from '@subwallet/extension-koni-ui/components/EmptyList/EmptyList';
 import { FilterTabItemType, FilterTabs } from '@subwallet/extension-koni-ui/components/FilterTabs';
 import Search from '@subwallet/extension-koni-ui/components/Search';
-import { useFilterModal, useSelector } from '@subwallet/extension-koni-ui/hooks';
+import BannerGenerator from '@subwallet/extension-koni-ui/components/StaticContent/BannerGenerator';
+import { useFilterModal, useGetBannerByScreen, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import { MissionDetailModal, PoolDetailModalId } from '@subwallet/extension-koni-ui/Popup/Settings/MissionPool/MissionDetailModal';
 import MissionItem from '@subwallet/extension-koni-ui/Popup/Settings/MissionPool/MissionPoolItem';
 import { missionCategories, MissionCategoryType, MissionTab } from '@subwallet/extension-koni-ui/Popup/Settings/MissionPool/predefined';
@@ -31,7 +32,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
   const { activeModal } = useContext(ModalContext);
   const [currentSelectItem, setCurrentSelectItem] = useState<MissionInfo | null>(null);
   const { missions } = useSelector((state: RootState) => state.missionPool);
-
+  const { banners, dismissBanner, onClickBanner } = useGetBannerByScreen('missionPools');
   const computedMission = useMemo(() => {
     return missions.map((item) => {
       return {
@@ -51,19 +52,19 @@ const Component: React.FC<Props> = ({ className }: Props) => {
   const filterTabItems = useMemo<FilterTabItemType[]>(() => {
     return [
       {
-        label: t('All'),
+        label: t('ui.SETTINGS.screen.Setting.MissionPool.all'),
         value: MissionTab.ALL
       },
       {
-        label: t('Defi'),
+        label: t('ui.SETTINGS.screen.Setting.MissionPool.defi'),
         value: MissionTab.DEFI
       },
       {
-        label: t('Meme'),
+        label: t('ui.SETTINGS.screen.Setting.MissionPool.meme'),
         value: MissionTab.MEME
       },
       {
-        label: t('Gaming'),
+        label: t('ui.SETTINGS.screen.Setting.MissionPool.gaming'),
         value: MissionTab.GAMING
       }
     ];
@@ -174,8 +175,8 @@ const Component: React.FC<Props> = ({ className }: Props) => {
   const emptyList = useCallback(() => {
     return (
       <EmptyList
-        emptyMessage={t('No mission found')}
-        emptyTitle={t('Your missions will show up here')}
+        emptyMessage={t('ui.SETTINGS.screen.Setting.MissionPool.noMissionFound')}
+        emptyTitle={t('ui.SETTINGS.screen.Setting.MissionPool.yourMissionsWillShowUpHere')}
         phosphorIcon={GlobeHemisphereWest}
       />
     );
@@ -188,9 +189,19 @@ const Component: React.FC<Props> = ({ className }: Props) => {
       subHeaderBackground={'transparent'}
       subHeaderCenter={false}
       subHeaderPaddingVertical={true}
-      title={t<string>('Mission Pools')}
+      title={t<string>('ui.SETTINGS.screen.Setting.MissionPool.missionPools')}
     >
       <div className={'__tool-area'}>
+        {!!banners.length && (
+          <div className={'mission-pool-banner-wrapper'}>
+            <BannerGenerator
+              banners={banners}
+              dismissBanner={dismissBanner}
+              onClickBanner={onClickBanner}
+            />
+          </div>
+        )}
+
         <Search
           actionBtnIcon={(
             <Icon
@@ -201,7 +212,7 @@ const Component: React.FC<Props> = ({ className }: Props) => {
           className={'__search-item'}
           onClickActionBtn={onClickActionBtn}
           onSearch={handleSearch}
-          placeholder={t('Campaign name...')}
+          placeholder={t('ui.SETTINGS.screen.Setting.MissionPool.campaignNamePlaceholder')}
           searchValue={searchInput}
           showActionBtn
         />
@@ -223,23 +234,21 @@ const Component: React.FC<Props> = ({ className }: Props) => {
           renderWhenEmpty={emptyList}
           searchFunction={searchFunction}
           searchMinCharactersCount={2}
-          searchPlaceholder={t<string>('Campaign name...')}
+          searchPlaceholder={t<string>('ui.SETTINGS.screen.Setting.MissionPool.campaignNamePlaceholder')}
           showActionBtn
         />
       </div>
       <FilterModal
-        applyFilterButtonTitle={t('Apply filter')}
+        applyFilterButtonTitle={t('ui.SETTINGS.screen.Setting.MissionPool.applyFilter')}
         id={FILTER_MODAL_ID}
         onApplyFilter={onApplyFilter}
         onCancel={onCloseFilterModal}
         onChangeOption={onChangeFilterOption}
         optionSelectionMap={filterSelectionMap}
         options={filterOptions}
-        title={t('Filter')}
+        title={t('ui.SETTINGS.screen.Setting.MissionPool.filter')}
       />
-      <MissionDetailModal
-        data={currentSelectItem}
-      />
+      <MissionDetailModal data={currentSelectItem} />
     </Layout.Base>
   );
 };
@@ -270,15 +279,17 @@ const MissionPool = styled(Component)<Props>(({ theme: { token } }: Props) => {
       paddingRight: token.padding
     },
     '.__search-item': {
-      display: 'flex',
+      display: 'block',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingTop: token.paddingXS
+      paddingTop: token.paddingXS,
+      paddingBottom: token.paddingXS,
+      paddingLeft: token.padding,
+      paddingRight: token.padding
     },
     '.__tool-area': {
       display: 'flex',
       flexDirection: 'column',
-      gap: token.sizeXS,
       marginBottom: token.marginXS
     },
     '.__content-wrapper': {
@@ -289,8 +300,12 @@ const MissionPool = styled(Component)<Props>(({ theme: { token } }: Props) => {
       paddingBottom: 0,
       marginTop: '8px !important',
       marginBottom: '8px !important'
+    },
+    '.mission-pool-banner-wrapper': {
+      paddingTop: token.paddingXS,
+      paddingLeft: token.padding,
+      paddingRight: token.padding
     }
-
   };
 });
 

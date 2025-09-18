@@ -1,8 +1,8 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AddressJson } from '@subwallet/extension-base/background/types';
-import { Avatar } from '@subwallet/extension-koni-ui/components';
+import { AddressJson } from '@subwallet/extension-base/types';
+import { AccountProxyAvatar } from '@subwallet/extension-koni-ui/components';
 import { DELETE_ADDRESS_BOOK_MODAL, EDIT_ADDRESS_BOOK_MODAL } from '@subwallet/extension-koni-ui/constants';
 import { useCopy, useNotification, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import { editContactAddress, removeContactAddress } from '@subwallet/extension-koni-ui/messaging';
@@ -58,11 +58,11 @@ const Component: React.FC<Props> = (props: Props) => {
   const modalProps: SwModalFuncProps = useMemo(() => {
     return {
       closable: true,
-      content: t('You would no longer see this address in your address book'),
+      content: t('ui.components.Modal.AddressBook.EditContact.deleteContactWarning'),
       id: DELETE_ADDRESS_BOOK_MODAL,
-      okText: t('Remove'),
-      subTitle: t('Delete this contact?'),
-      title: t('Confirmation'),
+      okText: t('ui.components.Modal.AddressBook.EditContact.remove'),
+      subTitle: t('ui.components.Modal.AddressBook.EditContact.deleteThisContact'),
+      title: t('ui.components.Modal.AddressBook.EditContact.confirmation'),
       type: 'error',
       maskClosable: true,
       zIndex: 1005
@@ -91,11 +91,11 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const nameValidator = useCallback((rule: RuleObject, name: string): Promise<void> => {
     if (!name) {
-      return Promise.reject(new Error(t('Contact name is required')));
+      return Promise.reject(new Error(t('ui.components.Modal.AddressBook.EditContact.contactNameRequired')));
     }
 
     if (existNames.includes(name)) {
-      return Promise.reject(new Error(t('Contact name must be unique')));
+      return Promise.reject(new Error(t('ui.components.Modal.AddressBook.EditContact.contactNameMustBeUnique')));
     }
 
     return Promise.resolve();
@@ -150,7 +150,7 @@ const Component: React.FC<Props> = (props: Props) => {
       className={CN(className)}
       id={modalId}
       onCancel={(!loading && !deleting) ? onCancel : undefined}
-      title={t('Edit contact')}
+      title={t('ui.components.Modal.AddressBook.EditContact.editContact')}
     >
       <Form
         className='form-space-sm'
@@ -171,9 +171,10 @@ const Component: React.FC<Props> = (props: Props) => {
           statusHelpAsTooltip={true}
         >
           <Input
-            label={t('Contact name')}
+            label={t('ui.components.Modal.AddressBook.EditContact.contactName')}
             prefix={(
-              <Avatar
+              <AccountProxyAvatar
+                className={'__account-avatar'}
                 size={20}
                 value={address}
               />
@@ -184,7 +185,7 @@ const Component: React.FC<Props> = (props: Props) => {
           <Field
             className='address-input'
             content={toShort(address, 12, 12)}
-            label={t('Contact address')}
+            label={t('ui.components.Modal.AddressBook.EditContact.contactAddress')}
             suffix={(
               <Button
                 className='copy-button'
@@ -222,7 +223,7 @@ const Component: React.FC<Props> = (props: Props) => {
             onClick={onCancel}
             schema='secondary'
           >
-            {t('Cancel')}
+            {t('ui.components.Modal.AddressBook.EditContact.cancel')}
           </Button>
           <Button
             block={true}
@@ -230,7 +231,7 @@ const Component: React.FC<Props> = (props: Props) => {
             htmlType='submit'
             loading={loading}
           >
-            {t('Save')}
+            {t('ui.components.Modal.AddressBook.EditContact.save')}
           </Button>
         </Form.Item>
       </Form>

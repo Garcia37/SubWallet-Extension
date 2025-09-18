@@ -1,10 +1,10 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AccountJson } from '@subwallet/extension-base/background/types';
 import { ALL_ACCOUNT_KEY } from '@subwallet/extension-base/constants';
+import { AccountChainType, AccountJson } from '@subwallet/extension-base/types';
 import { isSameAddress } from '@subwallet/extension-base/utils';
-import { AccountItemWithName, AlertBox } from '@subwallet/extension-koni-ui/components';
+import { AccountItemWithProxyAvatar, AccountProxySelectorAllItem, AlertBox } from '@subwallet/extension-koni-ui/components';
 import { useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { searchAccountFunction } from '@subwallet/extension-koni-ui/utils';
@@ -24,6 +24,7 @@ interface Props extends ThemeProps {
   selectedAccounts: string[];
   appliedAccounts: string[];
   availableAccounts: AccountJson[];
+  accountType: AccountChainType;
   onSelectAccount: (account: string, applyImmediately?: boolean) => VoidFunction;
   useModal: boolean;
   onApply: () => void;
@@ -33,7 +34,7 @@ interface Props extends ThemeProps {
 const renderEmpty = () => <GeneralEmptyList />;
 
 const Component: React.FC<Props> = (props: Props) => {
-  const { appliedAccounts, availableAccounts, className, id, namespace, onApply, onCancel, onSelectAccount, selectedAccounts, useModal } = props;
+  const { accountType, appliedAccounts, availableAccounts, className, id, onApply, onCancel, onSelectAccount, selectedAccounts, useModal } = props;
 
   const { t } = useTranslation();
 
@@ -44,26 +45,30 @@ const Component: React.FC<Props> = (props: Props) => {
   const isActive = checkActive(id);
 
   const noAccountTitle = useMemo(() => {
-    switch (namespace) {
-      case 'polkadot':
-        return t('No available Substrate account');
-      case 'eip155':
-        return t('No available EVM account');
+    switch (accountType) {
+      case AccountChainType.SUBSTRATE:
+        return t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.noAvailableSubstrateAccount');
+      case AccountChainType.ETHEREUM:
+        return t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.noAvailableEvmAccount');
       default:
-        return t('No available account');
+        return t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.noAvailableAccount');
     }
-  }, [namespace, t]);
+  }, [accountType, t]);
 
   const noAccountDescription = useMemo(() => {
-    switch (namespace) {
-      case 'polkadot':
-        return t("You don't have any Substrate account to connect. Please create one or skip this step by hitting Cancel.");
-      case 'eip155':
-        return t("You don't have any EVM account to connect. Please create one or skip this step by hitting Cancel.");
+    switch (accountType) {
+      case AccountChainType.SUBSTRATE:
+        return t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.noSubstrateAccountToConnect');
+      case AccountChainType.ETHEREUM:
+        return t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.noEvmAccountToConnect');
       default:
-        return t("You don't have any account to connect. Please create one or skip this step by hitting Cancel.");
+        return t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.noAccountToConnect');
     }
-  }, [namespace, t]);
+  }, [accountType, t]);
+
+  const basicProxyAccounts = useMemo(() => {
+    return availableAccounts.map(({ name, proxyId }) => ({ name, id: proxyId || '' }));
+  }, [availableAccounts]);
 
   const onOpenModal = useCallback(() => {
     activeModal(id);
@@ -83,14 +88,14 @@ const Component: React.FC<Props> = (props: Props) => {
     const selected = !!selectedAccounts.find((address) => isSameAddress(address, item.address));
 
     return (
-      <AccountItemWithName
+      <AccountItemWithProxyAvatar
+        account={item}
         accountName={item.name}
-        address={item.address}
-        avatarSize={24}
-        direction='horizontal'
+        className={'__account-proxy-item'}
         isSelected={selected}
         key={item.address}
         onClick={onSelectAccount(item.address, false)}
+        showAccountNameFallback={false}
         showUnselectIcon={true}
       />
     );
@@ -135,16 +140,15 @@ const Component: React.FC<Props> = (props: Props) => {
                       )}
                       onClick={_onApply}
                     >
-                      {t('Apply {{number}} account{{s}}', { replace: { number: selectedAccounts.length, s: selectedAccounts.length > 1 ? 's' : '' } })}
+                      {t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.applyNumberAccounts', { replace: { number: selectedAccounts.length, s: selectedAccounts.length > 1 ? 's' : '' } })}
                     </Button>
                   )}
                   id={id}
                   onCancel={onCloseModal}
-                  title={t('Select account')}
+                  title={t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.selectAccount')}
                 >
                   <SwList.Section
                     className='account-list'
-                    displayRow
                     enableSearchInput={true}
                     list={availableAccounts}
                     ref={sectionRef}
@@ -153,7 +157,7 @@ const Component: React.FC<Props> = (props: Props) => {
                     rowGap='var(--row-gap)'
                     searchFunction={searchAccountFunction}
                     searchMinCharactersCount={2}
-                    searchPlaceholder={t<string>('Search account')}
+                    searchPlaceholder={t<string>('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.searchAccount')}
                   />
                 </SwModal>
               </>
@@ -162,34 +166,33 @@ const Component: React.FC<Props> = (props: Props) => {
               <>
                 <div className={CN('account-list', 'no-modal')}>
                   {availableAccounts.length > 1 && (
-                    <AccountItemWithName
-                      accountName={'Select all accounts'}
-                      accounts={availableAccounts}
-                      address={ALL_ACCOUNT_KEY}
-                      avatarSize={24}
+                    <AccountProxySelectorAllItem
+                      accountProxies={basicProxyAccounts}
+                      className={'all-account-selection'}
                       isSelected={selectedAccounts.length === availableAccounts.length}
                       onClick={onSelectAccount(ALL_ACCOUNT_KEY, true)}
-                      showUnselectIcon
+                      showUnSelectedIcon
                     />
                   )}
                   {availableAccounts.map((item) => {
                     const selected = !!selectedAccounts.find((address) => isSameAddress(address, item.address));
 
                     return (
-                      <AccountItemWithName
+                      <AccountItemWithProxyAvatar
+                        account={item}
                         accountName={item.name}
-                        address={item.address}
-                        avatarSize={24}
+                        className={'__account-proxy-item'}
                         isSelected={selected}
                         key={item.address}
                         onClick={onSelectAccount(item.address, true)}
+                        showAccountNameFallback={false}
                         showUnselectIcon
                       />
                     );
                   })}
                 </div>
                 <div className={CN(className, 'additional-content')}>
-                  {t('Make sure you trust this site before connecting')}
+                  {t('ui.WALLET_CONNECT.components.WalletConnect.AccountSelect.trustSiteBeforeConnecting')}
                 </div>
               </>
             )
@@ -223,6 +226,32 @@ const WCAccountSelect = styled(Component)<Props>(({ theme: { token } }: Props) =
       lineHeight: token.lineHeightHeading6,
       textAlign: 'center',
       color: token.colorTextTertiary
+    },
+
+    '.all-account-selection': {
+      '.__item-middle-part': {
+        textAlign: 'start',
+        fontSize: token.fontSize
+      }
+    },
+
+    '.account-list.no-modal .__account-proxy-item': {
+      marginBottom: 0
+    },
+
+    '.__account-proxy-item': {
+      marginBottom: token.marginXS,
+      background: token.colorBgSecondary,
+
+      '&:hover': {
+        background: token.colorBgInput,
+        '.__item-actions-overlay': {
+          opacity: 0
+        },
+        '.-show-on-hover': {
+          opacity: 1
+        }
+      }
     }
   };
 });

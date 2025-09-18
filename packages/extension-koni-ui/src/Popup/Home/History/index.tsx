@@ -1,27 +1,23 @@
 // Copyright 2019-2022 @polkadot/extension-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { _ChainInfo } from '@subwallet/chain-list/types';
 import { ExtrinsicStatus, ExtrinsicType, TransactionDirection, TransactionHistoryItem } from '@subwallet/extension-base/background/KoniTypes';
-import { AccountJson } from '@subwallet/extension-base/background/types';
 import { YIELD_EXTRINSIC_TYPES } from '@subwallet/extension-base/koni/api/yield/helper/utils';
 import { _isChainEvmCompatible } from '@subwallet/extension-base/services/chain-service/utils';
 import { quickFormatAddressToCompare } from '@subwallet/extension-base/utils';
-import { AccountSelector, BasicInputEvent, ChainSelector, EmptyList, FilterModal, HistoryItem, Layout, PageWrapper } from '@subwallet/extension-koni-ui/components';
+import { AccountAddressSelector, BasicInputEvent, ChainSelector, EmptyList, FilterModal, HistoryItem, Layout, PageWrapper } from '@subwallet/extension-koni-ui/components';
 import { DEFAULT_SESSION_VALUE, HISTORY_DETAIL_MODAL, LATEST_SESSION, REMIND_BACKUP_SEED_PHRASE_MODAL } from '@subwallet/extension-koni-ui/constants';
 import { DataContext } from '@subwallet/extension-koni-ui/contexts/DataContext';
-import { useChainInfoWithState, useFilterModal, useHistorySelection, useSelector, useSetCurrentPage } from '@subwallet/extension-koni-ui/hooks';
+import { useFilterModal, useHistorySelection, useSelector, useSetCurrentPage } from '@subwallet/extension-koni-ui/hooks';
 import { cancelSubscription, subscribeTransactionHistory } from '@subwallet/extension-koni-ui/messaging';
-import { ChainItemType, SessionStorage, ThemeProps, TransactionHistoryDisplayData, TransactionHistoryDisplayItem } from '@subwallet/extension-koni-ui/types';
-import { customFormatDate, findAccountByAddress, findNetworkJsonByGenesisHash, formatHistoryDate, isTypeStaking, isTypeTransfer } from '@subwallet/extension-koni-ui/utils';
+import { SessionStorage, ThemeProps, TransactionHistoryDisplayData, TransactionHistoryDisplayItem } from '@subwallet/extension-koni-ui/types';
+import { customFormatDate, formatHistoryDate, isTypeStaking, isTypeTransfer } from '@subwallet/extension-koni-ui/utils';
 import { ButtonProps, Icon, ModalContext, SwIconProps, SwList, SwSubHeader } from '@subwallet/react-ui';
-import { Aperture, ArrowDownLeft, ArrowsLeftRight, ArrowUpRight, Clock, ClockCounterClockwise, Database, FadersHorizontal, Rocket, Spinner } from 'phosphor-react';
+import { Aperture, ArrowDownLeft, ArrowsLeftRight, ArrowUpRight, Clock, ClockCounterClockwise, Database, FadersHorizontal, Pencil, Rocket, Spinner } from 'phosphor-react';
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import styled from 'styled-components';
-
-import { isEthereumAddress } from '@polkadot/util-crypto';
 
 import { HistoryDetailModal } from './Detail';
 
@@ -37,7 +33,8 @@ const IconMap: Record<string, SwIconProps['phosphorIcon']> = {
   processing: Spinner,
   default: ClockCounterClockwise,
   timeout: ClockCounterClockwise,
-  swap: ArrowsLeftRight
+  swap: ArrowsLeftRight,
+  nominate: Pencil
 };
 
 function getIcon (item: TransactionHistoryItem): SwIconProps['phosphorIcon'] {
@@ -61,6 +58,10 @@ function getIcon (item: TransactionHistoryItem): SwIconProps['phosphorIcon'] {
     return IconMap.claim_reward;
   }
 
+  if (item.type === ExtrinsicType.CHANGE_EARNING_VALIDATOR) {
+    return IconMap.nominate;
+  }
+
   if (item.type === ExtrinsicType.SWAP) {
     return IconMap.swap;
   }
@@ -74,7 +75,8 @@ function getIcon (item: TransactionHistoryItem): SwIconProps['phosphorIcon'] {
 
 function getDisplayData (item: TransactionHistoryItem, nameMap: Record<string, string>, titleMap: Record<string, string>): TransactionHistoryDisplayData {
   let displayData: TransactionHistoryDisplayData;
-  const time = customFormatDate(item.time, '#hhhh#:#mm#');
+  const displayTime = item.blockTime || item.time;
+  const time = customFormatDate(displayTime, '#hhhh#:#mm#');
 
   const displayStatus = item.status === ExtrinsicStatus.FAIL ? 'fail' : '';
 
@@ -147,41 +149,6 @@ function getHistoryItemKey (item: Pick<TransactionHistoryItem, 'chain' | 'addres
   return `${item.chain}-${item.address}-${item.transactionId || item.extrinsicHash}`;
 }
 
-function findLedgerChainOfSelectedAccount (
-  address: string,
-  accounts: AccountJson[],
-  chainInfoMap: Record<string, _ChainInfo>
-): string | undefined {
-  if (!address) {
-    return undefined;
-  }
-
-  const isAccountEthereum = isEthereumAddress(address);
-
-  const account = findAccountByAddress(accounts, address);
-
-  if (isAccountEthereum && account?.isHardware) {
-    return 'ethereum';
-  }
-
-  if (!account || !account.isHardware) {
-    return undefined;
-  }
-
-  if (account.isGeneric) {
-    return undefined;
-  }
-
-  const validGen: string[] = account.availableGenesisHashes || [];
-  const validLedgerNetworks = validGen.map((genesisHash) => findNetworkJsonByGenesisHash(chainInfoMap, genesisHash)?.slug).filter((i) => !!i);
-
-  if (validLedgerNetworks.length) {
-    return validLedgerNetworks[0];
-  }
-
-  return undefined;
-}
-
 function filterDuplicateItems (items: TransactionHistoryItem[]): TransactionHistoryItem[] {
   const result: TransactionHistoryItem[] = [];
 
@@ -216,6 +183,12 @@ function filterDuplicateItems (items: TransactionHistoryItem[]): TransactionHist
   return result;
 }
 
+const PROCESSING_STATUSES: ExtrinsicStatus[] = [
+  ExtrinsicStatus.QUEUED,
+  ExtrinsicStatus.SUBMITTING,
+  ExtrinsicStatus.PROCESSING
+];
+
 const modalId = HISTORY_DETAIL_MODAL;
 const remindSeedPhraseModalId = REMIND_BACKUP_SEED_PHRASE_MODAL;
 const DEFAULT_ITEMS_COUNT = 20;
@@ -226,9 +199,8 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
   const dataContext = useContext(DataContext);
   const { t } = useTranslation();
   const { activeModal, checkActive, inactiveModal } = useContext(ModalContext);
-  const { accounts, currentAccount, isAllAccount } = useSelector((root) => root.accountState);
+  const { accounts, currentAccountProxy, isAllAccount } = useSelector((root) => root.accountState);
   const { chainInfoMap } = useSelector((root) => root.chainStore);
-  const chainInfoList = useChainInfoWithState();
   const { language } = useSelector((root) => root.settings);
   const [loading, setLoading] = useState<boolean>(true);
   const [rawHistoryList, setRawHistoryList] = useState<TransactionHistoryItem[]>([]);
@@ -292,15 +264,15 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
 
   const filterOptions = useMemo(() => {
     return [
-      { label: t('Send token'), value: FilterValue.SEND },
-      { label: t('Receive token'), value: FilterValue.RECEIVED },
-      { label: t('NFT transaction'), value: FilterValue.NFT },
-      { label: t('Earning transaction'), value: FilterValue.STAKE },
-      { label: t('Claim reward'), value: FilterValue.CLAIM },
-      { label: t('Swap'), value: FilterValue.SWAP },
-      // { label: t('Crowdloan transaction'), value: FilterValue.CROWDLOAN }, // support crowdloan later
-      { label: t('Successful'), value: FilterValue.SUCCESSFUL },
-      { label: t('Failed'), value: FilterValue.FAILED }
+      { label: t('ui.HISTORY.screen.History.sendToken'), value: FilterValue.SEND },
+      { label: t('ui.HISTORY.screen.History.receiveToken'), value: FilterValue.RECEIVED },
+      { label: t('ui.HISTORY.screen.History.nftTransaction'), value: FilterValue.NFT },
+      { label: t('ui.HISTORY.screen.History.earningTransaction'), value: FilterValue.STAKE },
+      { label: t('ui.HISTORY.screen.History.claimReward'), value: FilterValue.CLAIM },
+      { label: t('ui.HISTORY.screen.History.swap'), value: FilterValue.SWAP },
+      // { label: t('ui.HISTORY.screen.History.crowdloanTransaction'), value: FilterValue.CROWDLOAN }, // support crowdloan later
+      { label: t('ui.HISTORY.screen.History.successful'), value: FilterValue.SUCCESSFUL },
+      { label: t('ui.HISTORY.screen.History.failed'), value: FilterValue.FAILED }
     ];
   }, [t]);
 
@@ -313,94 +285,98 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
   }, [accounts]);
 
   const typeNameMap: Record<string, string> = useMemo((): Record<ExtrinsicType | 'default' | 'submitting' | 'processing' | 'timeout' | 'send' | 'received', string> => ({
-    default: t('Transaction'),
-    submitting: t('Submitting...'),
-    processing: t('Processing...'),
-    timeout: t('Time-out'),
-    send: t('Send'),
-    received: t('Receive'),
-    [ExtrinsicType.TRANSFER_BALANCE]: t('Send token'),
-    [ExtrinsicType.TRANSFER_TOKEN]: t('Send token'),
-    [ExtrinsicType.TRANSFER_XCM]: t('Send token'),
-    [ExtrinsicType.SEND_NFT]: t('NFT'),
-    [ExtrinsicType.CROWDLOAN]: t('Crowdloan'),
-    [ExtrinsicType.STAKING_JOIN_POOL]: t('Stake'),
-    [ExtrinsicType.STAKING_LEAVE_POOL]: t('Unstake'),
-    [ExtrinsicType.STAKING_BOND]: t('Stake'),
-    [ExtrinsicType.STAKING_UNBOND]: t('Unstake'),
-    [ExtrinsicType.STAKING_CLAIM_REWARD]: t('Claim Reward'),
-    [ExtrinsicType.STAKING_WITHDRAW]: t('Withdraw'),
-    [ExtrinsicType.STAKING_POOL_WITHDRAW]: t('Withdraw'),
-    [ExtrinsicType.STAKING_CANCEL_UNSTAKE]: t('Cancel unstake'),
-    [ExtrinsicType.STAKING_COMPOUNDING]: t('Compound'),
-    [ExtrinsicType.STAKING_CANCEL_COMPOUNDING]: t('Cancel compound'),
-    [ExtrinsicType.EVM_EXECUTE]: t('EVM Transaction'),
-    [ExtrinsicType.JOIN_YIELD_POOL]: t('Stake'),
-    [ExtrinsicType.MINT_QDOT]: t('Mint qDOT'),
-    [ExtrinsicType.MINT_SDOT]: t('Mint sDOT'),
-    [ExtrinsicType.MINT_LDOT]: t('Mint LDOT'),
-    [ExtrinsicType.MINT_VDOT]: t('Mint vDOT'),
-    [ExtrinsicType.MINT_VMANTA]: t('Mint vMANTA'),
-    [ExtrinsicType.MINT_STDOT]: t('Mint stDOT'),
-    [ExtrinsicType.REDEEM_QDOT]: t('Redeem qDOT'),
-    [ExtrinsicType.REDEEM_SDOT]: t('Redeem sDOT'),
-    [ExtrinsicType.REDEEM_LDOT]: t('Redeem LDOT'),
-    [ExtrinsicType.REDEEM_VDOT]: t('Redeem vDOT'),
-    [ExtrinsicType.REDEEM_VMANTA]: t('Redeem vMANTA'),
-    [ExtrinsicType.REDEEM_STDOT]: t('Redeem stDOT'),
-    [ExtrinsicType.UNSTAKE_QDOT]: t('Unstake qDOT'),
-    [ExtrinsicType.UNSTAKE_VDOT]: t('Unstake vDOT'),
-    [ExtrinsicType.UNSTAKE_VMANTA]: t('Unstake vMANTA'),
-    [ExtrinsicType.UNSTAKE_LDOT]: t('Unstake LDOT'),
-    [ExtrinsicType.UNSTAKE_SDOT]: t('Unstake sDOT'),
-    [ExtrinsicType.UNSTAKE_STDOT]: t('Unstake stDOT'),
-    [ExtrinsicType.TOKEN_SPENDING_APPROVAL]: t('Token approve'),
-    [ExtrinsicType.SWAP]: t('Swap'),
-    [ExtrinsicType.UNKNOWN]: t('Unknown')
+    default: t('ui.HISTORY.screen.History.transaction'),
+    submitting: t('ui.HISTORY.screen.History.submittingEllipsis'),
+    processing: t('ui.HISTORY.screen.History.processingEllipsis'),
+    timeout: t('ui.HISTORY.screen.History.timeOut'),
+    send: t('ui.HISTORY.screen.History.send'),
+    received: t('ui.HISTORY.screen.History.receive'),
+    [ExtrinsicType.TRANSFER_BALANCE]: t('ui.HISTORY.screen.History.sendToken'),
+    [ExtrinsicType.TRANSFER_TOKEN]: t('ui.HISTORY.screen.History.sendToken'),
+    [ExtrinsicType.TRANSFER_XCM]: t('ui.HISTORY.screen.History.sendToken'),
+    [ExtrinsicType.SEND_NFT]: t('ui.HISTORY.screen.History.nft'),
+    [ExtrinsicType.CROWDLOAN]: t('ui.HISTORY.screen.History.crowdloan'),
+    [ExtrinsicType.STAKING_JOIN_POOL]: t('ui.HISTORY.screen.History.stake'),
+    [ExtrinsicType.STAKING_LEAVE_POOL]: t('ui.HISTORY.screen.History.unstake'),
+    [ExtrinsicType.STAKING_BOND]: t('ui.HISTORY.screen.History.stake'),
+    [ExtrinsicType.STAKING_UNBOND]: t('ui.HISTORY.screen.History.unstake'),
+    [ExtrinsicType.CHANGE_EARNING_VALIDATOR]: t('ui.HISTORY.screen.History.nominate'),
+    [ExtrinsicType.STAKING_CLAIM_REWARD]: t('ui.HISTORY.screen.History.claimReward'),
+    [ExtrinsicType.STAKING_WITHDRAW]: t('ui.HISTORY.screen.History.withdraw'),
+    [ExtrinsicType.STAKING_POOL_WITHDRAW]: t('ui.HISTORY.screen.History.withdraw'),
+    [ExtrinsicType.STAKING_CANCEL_UNSTAKE]: t('ui.HISTORY.screen.History.cancelUnstake'),
+    [ExtrinsicType.STAKING_COMPOUNDING]: t('ui.HISTORY.screen.History.compound'),
+    [ExtrinsicType.STAKING_CANCEL_COMPOUNDING]: t('ui.HISTORY.screen.History.cancelCompound'),
+    [ExtrinsicType.EVM_EXECUTE]: t('ui.HISTORY.screen.History.evmTransaction'),
+    [ExtrinsicType.JOIN_YIELD_POOL]: t('ui.HISTORY.screen.History.stake'),
+    [ExtrinsicType.MINT_QDOT]: t('ui.HISTORY.screen.History.mintQDot'),
+    [ExtrinsicType.MINT_SDOT]: t('ui.HISTORY.screen.History.mintSDot'),
+    [ExtrinsicType.MINT_LDOT]: t('ui.HISTORY.screen.History.mintLDot'),
+    [ExtrinsicType.MINT_VDOT]: t('ui.HISTORY.screen.History.mintVDot'),
+    [ExtrinsicType.MINT_VMANTA]: t('ui.HISTORY.screen.History.mintVManta'),
+    [ExtrinsicType.MINT_STDOT]: t('ui.HISTORY.screen.History.mintStDot'),
+    [ExtrinsicType.REDEEM_QDOT]: t('ui.HISTORY.screen.History.redeemQDot'),
+    [ExtrinsicType.REDEEM_SDOT]: t('ui.HISTORY.screen.History.redeemSDot'),
+    [ExtrinsicType.REDEEM_LDOT]: t('ui.HISTORY.screen.History.redeemLDot'),
+    [ExtrinsicType.REDEEM_VDOT]: t('ui.HISTORY.screen.History.redeemVDot'),
+    [ExtrinsicType.REDEEM_VMANTA]: t('ui.HISTORY.screen.History.redeemVManta'),
+    [ExtrinsicType.REDEEM_STDOT]: t('ui.HISTORY.screen.History.redeemStDot'),
+    [ExtrinsicType.UNSTAKE_QDOT]: t('ui.HISTORY.screen.History.unstakeQDot'),
+    [ExtrinsicType.UNSTAKE_VDOT]: t('ui.HISTORY.screen.History.unstakeVDot'),
+    [ExtrinsicType.UNSTAKE_VMANTA]: t('ui.HISTORY.screen.History.unstakeVManta'),
+    [ExtrinsicType.UNSTAKE_LDOT]: t('ui.HISTORY.screen.History.unstakeLDot'),
+    [ExtrinsicType.UNSTAKE_SDOT]: t('ui.HISTORY.screen.History.unstakeSDot'),
+    [ExtrinsicType.UNSTAKE_STDOT]: t('ui.HISTORY.screen.History.unstakeStDot'),
+    [ExtrinsicType.TOKEN_SPENDING_APPROVAL]: t('ui.HISTORY.screen.History.tokenApprove'),
+    [ExtrinsicType.SWAP]: t('ui.HISTORY.screen.History.swap'),
+    [ExtrinsicType.CLAIM_BRIDGE]: t('ui.HISTORY.screen.History.claimToken'),
+    [ExtrinsicType.UNKNOWN]: t('ui.HISTORY.screen.History.unknown')
   }), [t]);
 
   const typeTitleMap: Record<string, string> = useMemo((): Record<ExtrinsicType | 'default' | 'send' | 'received', string> => ({
-    default: t('Transaction'),
-    send: t('Send token'),
-    received: t('Receive token'),
-    [ExtrinsicType.TRANSFER_BALANCE]: t('Send token'),
-    [ExtrinsicType.TRANSFER_TOKEN]: t('Send token'),
-    [ExtrinsicType.TRANSFER_XCM]: t('Send token'),
-    [ExtrinsicType.SEND_NFT]: t('NFT transaction'),
-    [ExtrinsicType.CROWDLOAN]: t('Crowdloan transaction'),
-    [ExtrinsicType.STAKING_JOIN_POOL]: t('Stake transaction'),
-    [ExtrinsicType.STAKING_LEAVE_POOL]: t('Unstake transaction'),
-    [ExtrinsicType.STAKING_BOND]: t('Stake transaction'),
-    [ExtrinsicType.STAKING_UNBOND]: t('Unstake transaction'),
-    [ExtrinsicType.STAKING_CLAIM_REWARD]: t('Claim Reward transaction'),
-    [ExtrinsicType.STAKING_WITHDRAW]: t('Withdraw transaction'),
-    [ExtrinsicType.STAKING_POOL_WITHDRAW]: t('Withdraw transaction'),
-    [ExtrinsicType.STAKING_CANCEL_UNSTAKE]: t('Cancel unstake transaction'),
-    [ExtrinsicType.STAKING_COMPOUNDING]: t('Compound transaction'),
-    [ExtrinsicType.STAKING_CANCEL_COMPOUNDING]: t('Cancel compound transaction'),
-    [ExtrinsicType.EVM_EXECUTE]: t('EVM Transaction'),
-    [ExtrinsicType.JOIN_YIELD_POOL]: t('Stake transaction'),
-    [ExtrinsicType.MINT_QDOT]: t('Mint qDOT transaction'),
-    [ExtrinsicType.MINT_SDOT]: t('Mint sDOT transaction'),
-    [ExtrinsicType.MINT_LDOT]: t('Mint LDOT transaction'),
-    [ExtrinsicType.MINT_VDOT]: t('Mint vDOT transaction'),
-    [ExtrinsicType.MINT_VMANTA]: t('Mint vMANTA transaction'),
-    [ExtrinsicType.MINT_STDOT]: t('Mint stDOT transaction'),
-    [ExtrinsicType.REDEEM_QDOT]: t('Redeem qDOT transaction'),
-    [ExtrinsicType.REDEEM_SDOT]: t('Redeem sDOT transaction'),
-    [ExtrinsicType.REDEEM_LDOT]: t('Redeem LDOT transaction'),
-    [ExtrinsicType.REDEEM_VDOT]: t('Redeem vDOT transaction'),
-    [ExtrinsicType.REDEEM_VMANTA]: t('Redeem vMANTA transaction'),
-    [ExtrinsicType.REDEEM_STDOT]: t('Redeem stDOT transaction'),
-    [ExtrinsicType.UNSTAKE_QDOT]: t('Unstake qDOT tranasction'),
-    [ExtrinsicType.UNSTAKE_VDOT]: t('Unstake vDOT tranasction'),
-    [ExtrinsicType.UNSTAKE_VMANTA]: t('Unstake vMANTA tranasction'),
-    [ExtrinsicType.UNSTAKE_LDOT]: t('Unstake LDOT tranasction'),
-    [ExtrinsicType.UNSTAKE_SDOT]: t('Unstake sDOT tranasction'),
-    [ExtrinsicType.UNSTAKE_STDOT]: t('Unstake stDOT tranasction'),
-    [ExtrinsicType.TOKEN_SPENDING_APPROVAL]: t('Token approve transaction'),
-    [ExtrinsicType.SWAP]: t('Swap transaction'),
-    [ExtrinsicType.UNKNOWN]: t('Unknown transaction')
+    default: t('ui.HISTORY.screen.History.transaction'),
+    send: t('ui.HISTORY.screen.History.sendToken'),
+    received: t('ui.HISTORY.screen.History.receiveToken'),
+    [ExtrinsicType.TRANSFER_BALANCE]: t('ui.HISTORY.screen.History.sendToken'),
+    [ExtrinsicType.TRANSFER_TOKEN]: t('ui.HISTORY.screen.History.sendToken'),
+    [ExtrinsicType.TRANSFER_XCM]: t('ui.HISTORY.screen.History.sendToken'),
+    [ExtrinsicType.SEND_NFT]: t('ui.HISTORY.screen.History.nftTransaction'),
+    [ExtrinsicType.CROWDLOAN]: t('ui.HISTORY.screen.History.crowdloanTransaction'),
+    [ExtrinsicType.STAKING_JOIN_POOL]: t('ui.HISTORY.screen.History.stakeTransaction'),
+    [ExtrinsicType.STAKING_LEAVE_POOL]: t('ui.HISTORY.screen.History.unstakeTransaction'),
+    [ExtrinsicType.STAKING_BOND]: t('ui.HISTORY.screen.History.stakeTransaction'),
+    [ExtrinsicType.STAKING_UNBOND]: t('ui.HISTORY.screen.History.unstakeTransaction'),
+    [ExtrinsicType.CHANGE_EARNING_VALIDATOR]: t('ui.HISTORY.screen.History.stakeTransaction'),
+    [ExtrinsicType.STAKING_CLAIM_REWARD]: t('ui.HISTORY.screen.History.claimRewardTransaction'),
+    [ExtrinsicType.STAKING_WITHDRAW]: t('ui.HISTORY.screen.History.withdrawTransaction'),
+    [ExtrinsicType.STAKING_POOL_WITHDRAW]: t('ui.HISTORY.screen.History.withdrawTransaction'),
+    [ExtrinsicType.STAKING_CANCEL_UNSTAKE]: t('ui.HISTORY.screen.History.cancelUnstakeTransaction'),
+    [ExtrinsicType.STAKING_COMPOUNDING]: t('ui.HISTORY.screen.History.compoundTransaction'),
+    [ExtrinsicType.STAKING_CANCEL_COMPOUNDING]: t('ui.HISTORY.screen.History.cancelCompoundTransaction'),
+    [ExtrinsicType.EVM_EXECUTE]: t('ui.HISTORY.screen.History.evmTransaction'),
+    [ExtrinsicType.JOIN_YIELD_POOL]: t('ui.HISTORY.screen.History.stakeTransaction'),
+    [ExtrinsicType.MINT_QDOT]: t('ui.HISTORY.screen.History.mintQDotTransaction'),
+    [ExtrinsicType.MINT_SDOT]: t('ui.HISTORY.screen.History.mintSDotTransaction'),
+    [ExtrinsicType.MINT_LDOT]: t('ui.HISTORY.screen.History.mintLDotTransaction'),
+    [ExtrinsicType.MINT_VDOT]: t('ui.HISTORY.screen.History.mintVDotTransaction'),
+    [ExtrinsicType.MINT_VMANTA]: t('ui.HISTORY.screen.History.mintVMantaTransaction'),
+    [ExtrinsicType.MINT_STDOT]: t('ui.HISTORY.screen.History.mintStDotTransaction'),
+    [ExtrinsicType.REDEEM_QDOT]: t('ui.HISTORY.screen.History.redeemQDotTransaction'),
+    [ExtrinsicType.REDEEM_SDOT]: t('ui.HISTORY.screen.History.redeemSDotTransaction'),
+    [ExtrinsicType.REDEEM_LDOT]: t('ui.HISTORY.screen.History.redeemLDotTransaction'),
+    [ExtrinsicType.REDEEM_VDOT]: t('ui.HISTORY.screen.History.redeemVDotTransaction'),
+    [ExtrinsicType.REDEEM_VMANTA]: t('ui.HISTORY.screen.History.redeemVMantaTransaction'),
+    [ExtrinsicType.REDEEM_STDOT]: t('ui.HISTORY.screen.History.redeemStDotTransaction'),
+    [ExtrinsicType.UNSTAKE_QDOT]: t('ui.HISTORY.screen.History.unstakeQDotTransaction'),
+    [ExtrinsicType.UNSTAKE_VDOT]: t('ui.HISTORY.screen.History.unstakeVDotTransaction'),
+    [ExtrinsicType.UNSTAKE_VMANTA]: t('ui.HISTORY.screen.History.unstakeVMantaTransaction'),
+    [ExtrinsicType.UNSTAKE_LDOT]: t('ui.HISTORY.screen.History.unstakeLDotTransaction'),
+    [ExtrinsicType.UNSTAKE_SDOT]: t('ui.HISTORY.screen.History.unstakeSDotTransaction'),
+    [ExtrinsicType.UNSTAKE_STDOT]: t('ui.HISTORY.screen.History.unstakeStDotTransaction'),
+    [ExtrinsicType.TOKEN_SPENDING_APPROVAL]: t('ui.HISTORY.screen.History.tokenApproveTransaction'),
+    [ExtrinsicType.SWAP]: t('ui.HISTORY.screen.History.swapTransaction'),
+    [ExtrinsicType.CLAIM_BRIDGE]: t('ui.HISTORY.screen.History.claimTokenTransaction'),
+    [ExtrinsicType.UNKNOWN]: t('ui.HISTORY.screen.History.unknownTransaction')
   }), [t]);
 
   // Fill display data to history list
@@ -412,8 +388,9 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
       const fromName = accountMap[quickFormatAddressToCompare(item.from) || ''];
       const toName = accountMap[quickFormatAddressToCompare(item.to) || ''];
       const key = getHistoryItemKey(item);
+      const displayTime = item.blockTime || item.time;
 
-      finalHistoryMap[key] = { ...item, fromName, toName, displayData: getDisplayData(item, typeNameMap, typeTitleMap) };
+      finalHistoryMap[key] = { ...item, fromName, toName, displayData: getDisplayData(item, typeNameMap, typeTitleMap), displayTime };
     });
 
     return finalHistoryMap;
@@ -422,12 +399,24 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
   const [currentItemDisplayCount, setCurrentItemDisplayCount] = useState<number>(DEFAULT_ITEMS_COUNT);
 
   const getHistoryItems = useCallback((count: number) => {
-    return Object.values(historyMap).filter(filterFunction).sort((a, b) => (b.time - a.time)).slice(0, count);
+    return Object.values(historyMap).filter(filterFunction)
+      .sort((a, b) => {
+        if (PROCESSING_STATUSES.includes(a.status) && !PROCESSING_STATUSES.includes(b.status)) {
+          return -1;
+        } else if (PROCESSING_STATUSES.includes(b.status) && !PROCESSING_STATUSES.includes(a.status)) {
+          return 1;
+        } else if ((!!b.displayTime && !!a.displayTime) && (b.displayTime !== a.displayTime)) {
+          return b.displayTime - a.displayTime;
+        } else {
+          return (a.apiTxIndex ?? 0) - (b.apiTxIndex ?? 0);
+        }
+      })
+      .slice(0, count);
   }, [filterFunction, historyMap]);
 
   const [historyItems, setHistoryItems] = useState<TransactionHistoryDisplayItem[]>(getHistoryItems(DEFAULT_ITEMS_COUNT));
 
-  const [curAdr] = useState(currentAccount?.address);
+  const [currentAccountProxyid] = useState(currentAccountProxy?.id);
 
   // Handle detail modal
   const { chain, extrinsicHashOrId } = useParams();
@@ -488,19 +477,20 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
   }, [isActive, historyMap, inactiveModal]);
 
   useEffect(() => {
-    if (currentAccount?.address !== curAdr) {
+    if (currentAccountProxy?.id !== currentAccountProxyid) {
       inactiveModal(modalId);
       setSelectedItem(null);
     }
-  }, [curAdr, currentAccount?.address, inactiveModal]);
+  }, [currentAccountProxyid, currentAccountProxy?.id, inactiveModal]);
 
-  const { selectedAddress, selectedChain, setSelectedAddress, setSelectedChain } = useHistorySelection();
+  const { accountAddressItems, chainItems, selectedAddress, selectedChain, setSelectedAddress,
+    setSelectedChain } = useHistorySelection();
 
   const emptyList = useCallback(() => {
     return (
       <EmptyList
-        emptyMessage={t('Your transactions will show up here')}
-        emptyTitle={t('No transactions found')}
+        emptyMessage={t('ui.HISTORY.screen.History.yourTransactionsWillShowUpHere')}
+        emptyTitle={t('ui.HISTORY.screen.History.noTransactionsFound')}
         phosphorIcon={Clock}
       />
     );
@@ -519,34 +509,19 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
     [onOpenDetail]
   );
 
-  const groupBy = useCallback((item: TransactionHistoryItem) => {
-    return formatHistoryDate(item.time, language, 'list');
-  }, [language]);
+  const groupBy = useCallback((item: TransactionHistoryDisplayItem) => {
+    if (PROCESSING_STATUSES.includes(item.status)) {
+      return t('ui.HISTORY.screen.History.processing');
+    }
+
+    return formatHistoryDate(item.displayTime, language, 'list');
+  }, [language, t]);
 
   const groupSeparator = useCallback((group: TransactionHistoryItem[], idx: number, groupLabel: string) => {
     return (
       <div className='__group-separator'>{groupLabel}</div>
     );
   }, []);
-
-  const chainItems = useMemo<ChainItemType[]>(() => {
-    if (!selectedAddress) {
-      return [];
-    }
-
-    const result: ChainItemType[] = [];
-
-    chainInfoList.forEach((c) => {
-      if (_isChainEvmCompatible(c) === isEthereumAddress(selectedAddress)) {
-        result.push({
-          name: c.name,
-          slug: c.slug
-        });
-      }
-    });
-
-    return result;
-  }, [chainInfoList, selectedAddress]);
 
   const onSelectAccount = useCallback((event: BasicInputEvent) => {
     setSelectedAddress(event.target.value);
@@ -556,47 +531,31 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
     setSelectedChain(event.target.value);
   }, [setSelectedChain]);
 
-  const currentLedgerChainOfSelectedAccount = useMemo(() => {
-    return findLedgerChainOfSelectedAccount(selectedAddress,
-      accounts,
-      chainInfoMap);
-  }, [accounts, chainInfoMap, selectedAddress]);
-
   const isChainSelectorEmpty = !chainItems.length;
-
-  const chainSelectorDisabled = useMemo(() => {
-    if (!selectedAddress || isChainSelectorEmpty) {
-      return true;
-    }
-
-    if (!isEthereumAddress(selectedAddress)) {
-      return !!currentLedgerChainOfSelectedAccount;
-    }
-
-    return false;
-  }, [isChainSelectorEmpty, currentLedgerChainOfSelectedAccount, selectedAddress]);
 
   const historySelectorsNode = (
     <>
+      <ChainSelector
+        className={'__history-chain-selector'}
+        disabled={isChainSelectorEmpty}
+        items={chainItems}
+        loading={loading}
+        onChange={onSelectChain}
+        title={t('ui.HISTORY.screen.History.selectChain')}
+        value={selectedChain}
+      />
+
       {
-        isAllAccount && (
-          <AccountSelector
+        (isAllAccount || accountAddressItems.length > 1) && (
+          <AccountAddressSelector
+            autoSelectFirstItem={true}
             className={'__history-address-selector'}
+            items={accountAddressItems}
             onChange={onSelectAccount}
             value={selectedAddress}
           />
         )
       }
-
-      <ChainSelector
-        className={'__history-chain-selector'}
-        disabled={chainSelectorDisabled}
-        items={chainItems}
-        loading={loading}
-        onChange={onSelectChain}
-        title={t('Select chain')}
-        value={selectedChain}
-      />
     </>
   );
 
@@ -663,6 +622,12 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
     let id: string;
     let isSubscribed = true;
 
+    if (!selectedChain) {
+      setLoading(false);
+
+      return;
+    }
+
     setLoading(true);
 
     setCurrentItemDisplayCount(DEFAULT_ITEMS_COUNT);
@@ -699,34 +664,6 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
   }, [isSelectedChainEvm, selectedAddress, selectedChain]);
 
   useEffect(() => {
-    if (chainItems.length) {
-      setSelectedChain((prevChain) => {
-        const _isEthereumAddress = isEthereumAddress(selectedAddress);
-
-        if (currentLedgerChainOfSelectedAccount) {
-          if (!_isEthereumAddress) {
-            return currentLedgerChainOfSelectedAccount;
-          }
-        }
-
-        if (prevChain && chainInfoMap[prevChain]) {
-          const _isPrevChainEvm = _isChainEvmCompatible(chainInfoMap[prevChain]);
-
-          if (_isEthereumAddress && !_isPrevChainEvm && currentLedgerChainOfSelectedAccount) {
-            return currentLedgerChainOfSelectedAccount;
-          }
-
-          if (_isPrevChainEvm === _isEthereumAddress) {
-            return prevChain;
-          }
-        }
-
-        return chainItems[0].slug;
-      });
-    }
-  }, [chainInfoMap, chainItems, currentLedgerChainOfSelectedAccount, selectedAddress, setSelectedChain]);
-
-  useEffect(() => {
     setHistoryItems(getHistoryItems(currentItemDisplayCount));
   }, [currentItemDisplayCount, getHistoryItems]);
 
@@ -744,7 +681,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
             paddingVertical
             rightButtons={headerIcons}
             showBackButton={false}
-            title={t('History')}
+            title={t('ui.HISTORY.screen.History.history')}
           />
 
           <div className={'__page-background'}></div>
@@ -826,6 +763,16 @@ const History = styled(Component)<Props>(({ theme: { token } }: Props) => {
       '.__history-address-selector': {
         '.__selected-item-address': {
           display: 'none'
+        },
+
+        '.ant-field-container:before': {
+          display: 'none'
+        },
+
+        '.ant-field-wrapper': {
+          minHeight: 40,
+          paddingTop: 0,
+          paddingBottom: 0
         }
       }
     },

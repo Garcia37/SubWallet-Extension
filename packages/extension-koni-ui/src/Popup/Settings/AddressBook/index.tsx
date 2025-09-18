@@ -1,8 +1,8 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { AddressJson } from '@subwallet/extension-base/background/types';
-import { AccountItemBase, AccountItemWithName, AddContactModal, BackIcon, EditContactModal, FilterModal, GeneralEmptyList, Layout, PageWrapper } from '@subwallet/extension-koni-ui/components';
+import { AddressJson } from '@subwallet/extension-base/types';
+import { AddContactModal, AddressSelectorItem, BackIcon, EditContactModal, FilterModal, GeneralEmptyList, Layout, PageWrapper } from '@subwallet/extension-koni-ui/components';
 import { ADD_ADDRESS_BOOK_MODAL, EDIT_ADDRESS_BOOK_MODAL } from '@subwallet/extension-koni-ui/constants';
 import { useFilterModal, useFormatAddress, useSelector } from '@subwallet/extension-koni-ui/hooks';
 import { ThemeProps } from '@subwallet/extension-koni-ui/types';
@@ -98,11 +98,11 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const filterOptions: FilterOption[] = useMemo(() => ([
     {
-      label: t('Saved contacts'),
+      label: t('ui.SETTINGS.screen.Setting.AddressBook.savedContacts'),
       value: AccountGroup.CONTACT
     },
     {
-      label: t('Recent'),
+      label: t('ui.SETTINGS.screen.Setting.AddressBook.recent'),
       value: AccountGroup.RECENT
     }
   ]), [t]);
@@ -136,10 +136,10 @@ const Component: React.FC<Props> = (props: Props) => {
 
     switch (_group) {
       case AccountGroup.CONTACT:
-        groupLabel = t('Saved contacts');
+        groupLabel = t('ui.SETTINGS.screen.Setting.AddressBook.savedContacts');
         break;
       case AccountGroup.RECENT:
-        groupLabel = t('Recent');
+        groupLabel = t('ui.SETTINGS.screen.Setting.AddressBook.recent');
         break;
     }
 
@@ -165,11 +165,10 @@ const Component: React.FC<Props> = (props: Props) => {
 
     if (item.group === AccountGroup.RECENT) {
       return (
-        <AccountItemBase
+        <AddressSelectorItem
           address={address}
-          addressPreLength={8}
-          addressSufLength={8}
-          avatarSize={24}
+          avatarValue={address}
+          className={'address-item'}
           key={item.address}
           onClick={onSelectItem(item)}
         />
@@ -177,11 +176,12 @@ const Component: React.FC<Props> = (props: Props) => {
     }
 
     return (
-      <AccountItemWithName
-        accountName={item.name}
+      <AddressSelectorItem
         address={address}
-        avatarSize={24}
+        avatarValue={address}
+        className={'address-item'}
         key={item.address}
+        name={item.name}
         onClick={onSelectItem(item)}
       />
     );
@@ -196,11 +196,14 @@ const Component: React.FC<Props> = (props: Props) => {
       <Layout.WithSubHeaderOnly
         onBack={goBack}
         subHeaderIcons={subHeaderIcons}
-        title={t('Manage address book')}
+        title={t('ui.SETTINGS.screen.Setting.AddressBook.manageAddressBook')}
       >
         <SwList.Section
           actionBtnIcon={(
-            <Badge dot={!!selectedFilters.length}>
+            <Badge
+              className={'g-filter-badge'}
+              dot={!!selectedFilters.length}
+            >
               <Icon
                 phosphorIcon={FadersHorizontal}
                 size='sm'
@@ -221,7 +224,7 @@ const Component: React.FC<Props> = (props: Props) => {
           rowGap='var(--row-gap)'
           searchFunction={searchFunction}
           searchMinCharactersCount={2}
-          searchPlaceholder={t<string>('Account name')}
+          searchPlaceholder={t<string>('ui.SETTINGS.screen.Setting.AddressBook.accountName')}
           showActionBtn={true}
         />
         <FilterModal
@@ -232,7 +235,7 @@ const Component: React.FC<Props> = (props: Props) => {
           onChangeOption={onChangeFilterOption}
           optionSelectionMap={filterSelectionMap}
           options={filterOptions}
-          title={t('Filter')}
+          title={t('ui.SETTINGS.screen.Setting.AddressBook.filter')}
         />
         <AddContactModal />
         {selectedItem && <EditContactModal addressJson={selectedItem} />}
@@ -250,6 +253,10 @@ const ManageAddressBook = styled(Component)<Props>(({ theme: { token } }: Props)
       height: '100%',
       display: 'flex',
       flexDirection: 'column'
+    },
+
+    '.address-item.address-item': {
+      display: 'flex'
     },
 
     '.ant-sw-list-section': {

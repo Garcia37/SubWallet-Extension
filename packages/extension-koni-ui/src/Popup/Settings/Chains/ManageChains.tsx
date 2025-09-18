@@ -1,7 +1,7 @@
 // Copyright 2019-2022 @subwallet/extension-koni-ui authors & contributors
 // SPDX-License-Identifier: Apache-2.0
 
-import { _isChainEvmCompatible, _isCustomChain, _isSubstrateChain } from '@subwallet/extension-base/services/chain-service/utils';
+import { _isChainEvmCompatible, _isChainSubstrateCompatible, _isCustomChain } from '@subwallet/extension-base/services/chain-service/utils';
 import { FilterModal, Layout, NetworkEmptyList, NetworkToggleItem, OptionType, PageWrapper } from '@subwallet/extension-koni-ui/components';
 import { DataContext } from '@subwallet/extension-koni-ui/contexts/DataContext';
 import { ChainInfoWithState, useFilterModal, useTranslation } from '@subwallet/extension-koni-ui/hooks';
@@ -42,11 +42,11 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
   const { filterSelectionMap, onApplyFilter, onChangeFilterOption, onCloseFilterModal, selectedFilters } = useFilterModal(FILTER_MODAL_ID);
 
   const FILTER_OPTIONS = useMemo((): OptionType[] => ([
-    { label: t('EVM networks'), value: FilterValue.EVM },
-    { label: t('Substrate networks'), value: FilterValue.SUBSTRATE },
-    { label: t('Custom networks'), value: FilterValue.CUSTOM },
-    { label: t('Enabled networks'), value: FilterValue.ENABLED },
-    { label: t('Disabled networks'), value: FilterValue.DISABLED }
+    { label: t('ui.SETTINGS.screen.Setting.Chains.Manage.evmNetworks'), value: FilterValue.EVM },
+    { label: t('ui.SETTINGS.screen.Setting.Chains.Manage.substrateNetworks'), value: FilterValue.SUBSTRATE },
+    { label: t('ui.SETTINGS.screen.Setting.Chains.Manage.customNetworks'), value: FilterValue.CUSTOM },
+    { label: t('ui.SETTINGS.screen.Setting.Chains.Manage.enabledNetworks'), value: FilterValue.ENABLED },
+    { label: t('ui.SETTINGS.screen.Setting.Chains.Manage.disabledNetworks'), value: FilterValue.DISABLED }
   ]), [t]);
 
   const filterFunction = useMemo<(item: ChainInfoWithState) => boolean>(() => {
@@ -69,7 +69,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
             return true;
           }
         } else if (filter === FilterValue.SUBSTRATE) {
-          if (_isSubstrateChain(chainInfo)) {
+          if (_isChainSubstrateCompatible(chainInfo)) {
             return true;
           }
         } else if (filter === FilterValue.EVM) {
@@ -147,7 +147,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
         subHeaderCenter={true}
         subHeaderIcons={subHeaderButton}
         subHeaderPaddingVertical={true}
-        title={t<string>('Manage networks')}
+        title={t<string>('ui.SETTINGS.screen.Setting.Chains.Manage.manageNetworks')}
       >
         <SwList.Section
           actionBtnIcon={(
@@ -168,7 +168,7 @@ function Component ({ className = '' }: Props): React.ReactElement<Props> {
           renderWhenEmpty={renderEmpty}
           searchFunction={searchToken}
           searchMinCharactersCount={2}
-          searchPlaceholder={t<string>('Search network')}
+          searchPlaceholder={t<string>('ui.SETTINGS.screen.Setting.Chains.Manage.searchNetwork')}
           showActionBtn
         />
 

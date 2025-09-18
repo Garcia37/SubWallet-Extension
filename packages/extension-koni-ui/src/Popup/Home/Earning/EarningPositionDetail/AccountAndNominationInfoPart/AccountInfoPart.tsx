@@ -3,12 +3,13 @@
 
 import { _ChainAsset } from '@subwallet/chain-list/types';
 import { SpecialYieldPositionInfo, YieldPoolInfo, YieldPoolType, YieldPositionInfo } from '@subwallet/extension-base/types';
-import { isSameAddress } from '@subwallet/extension-base/utils';
+import { detectTranslate, isSameAddress } from '@subwallet/extension-base/utils';
 import { Avatar, CollapsiblePanel, MetaInfo } from '@subwallet/extension-koni-ui/components';
 import { InfoItemBase } from '@subwallet/extension-koni-ui/components/MetaInfo/parts';
 import { EarningNominationModal } from '@subwallet/extension-koni-ui/components/Modal/Earning';
-import { EARNING_NOMINATION_MODAL, EarningStatusUi } from '@subwallet/extension-koni-ui/constants';
-import { useSelector, useTranslation } from '@subwallet/extension-koni-ui/hooks';
+import EarningValidatorSelectedModal from '@subwallet/extension-koni-ui/components/Modal/Earning/EarningValidatorSelectedModal';
+import { EARNING_NOMINATION_MODAL, EARNING_SELECTED_VALIDATOR_MODAL, EarningStatusUi } from '@subwallet/extension-koni-ui/constants';
+import { useGetChainPrefixBySlug, useSelector, useTranslation } from '@subwallet/extension-koni-ui/hooks';
 import { EarningTagType, ThemeProps } from '@subwallet/extension-koni-ui/types';
 import { createEarningTypeTags, findAccountByAddress, isAccountAll, toShort } from '@subwallet/extension-koni-ui/utils';
 import { Button, Icon, ModalContext } from '@subwallet/react-ui';
@@ -62,6 +63,7 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
 
   const { assetRegistry } = useSelector((state) => state.assetRegistry);
   const { accounts } = useSelector((state) => state.accountState);
+  const networkPrefix = useGetChainPrefixBySlug(poolInfo.chain);
 
   const sliderSettings: Settings = useMemo(() => {
     return {
@@ -85,6 +87,7 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
       return undefined;
     }
   }, [assetRegistry, compound]);
+  const isSubnetStaking = useMemo(() => [YieldPoolType.SUBNET_STAKING].includes(type), [type]);
 
   const earningTagType: EarningTagType = useMemo(() => {
     return createEarningTypeTags(compound.chain)[compound.type];
@@ -92,9 +95,19 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
 
   const isAllAccount = useMemo(() => isAccountAll(compound.address), [compound.address]);
   const isSpecial = useMemo(() => [YieldPoolType.LENDING, YieldPoolType.LIQUID_STAKING].includes(type), [type]);
+
   const haveNomination = useMemo(() => {
-    return [YieldPoolType.NOMINATION_POOL, YieldPoolType.NATIVE_STAKING].includes(poolInfo.type);
+    return [YieldPoolType.NOMINATION_POOL].includes(poolInfo.type);
   }, [poolInfo.type]);
+
+  const haveValidator = useMemo(() => {
+    return [YieldPoolType.NATIVE_STAKING, YieldPoolType.SUBNET_STAKING].includes(poolInfo.type);
+  }, [poolInfo.type]);
+
+  const canChangeValidator = useMemo(() => {
+    return poolInfo.metadata.availableMethod.changeValidator;
+  }, [poolInfo]);
+
   const noNomination = useMemo(
     () => !haveNomination || isAllAccount || !compound.nominations.length,
     [compound.nominations.length, haveNomination, isAllAccount]
@@ -113,6 +126,7 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
       return (
         <>
           <Avatar
+            identPrefix={networkPrefix}
             size={24}
             value={item.address}
           />
@@ -122,7 +136,7 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
         </>
       );
     },
-    [accounts]
+    [accounts, networkPrefix]
   );
 
   const onCloseNominationModal = useCallback(() => {
@@ -136,9 +150,44 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
     };
   }, [activeModal]);
 
+  const createOpenValidator = useCallback((item: YieldPositionInfo) => {
+    return () => {
+      setSelectedAddress(item.address);
+      activeModal(EARNING_SELECTED_VALIDATOR_MODAL);
+    };
+  }, [activeModal]);
+
   const accountInfoItemsNode = useMemo(() => {
     return list.map((item) => {
       const disableButton = !item.nominations.length;
+
+      const metaInfoNumber = (labelKey: string, value: string | number | BigN, asset = inputAsset) => ({ label: t(labelKey), value, decimals: asset?.decimals || 0, suffix: asset?.symbol });
+
+      const metaInfoItems = isSubnetStaking
+        ? [
+          metaInfoNumber(detectTranslate('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.totalStake'), new BigN(item.totalStake)),
+          {
+            label: t('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.derivativeTokenBalance'),
+            value: item.subnetData?.originalTotalStake || '',
+            decimals: inputAsset?.decimals || 0,
+            suffix: item.subnetData?.subnetSymbol
+          }
+        ]
+        : !isSpecial
+          ? [
+            metaInfoNumber(detectTranslate('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.totalStake'), new BigN(item.totalStake)),
+            metaInfoNumber(detectTranslate('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.activeStake'), item.activeStake),
+            metaInfoNumber(detectTranslate('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.unstaked'), item.unstakeBalance)
+          ]
+          : [
+            metaInfoNumber(detectTranslate('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.totalStake'), new BigN(item.totalStake)),
+            {
+              label: t('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.derivativeTokenBalance'),
+              value: item.activeStake,
+              decimals: deriveAsset?.decimals || 0,
+              suffix: deriveAsset?.symbol
+            }
+          ];
 
       return (
         <MetaInfo
@@ -156,7 +205,9 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
             ? (
               <MetaInfo.Account
                 address={item.address}
-                label={t('Account')}
+                chainSlug={poolInfo.chain}
+                label={t('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.account')}
+                networkPrefix={networkPrefix}
               />
             )
             : (
@@ -164,63 +215,26 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
                 className={'__meta-earning-status-item'}
                 label={renderAccount(item)}
                 statusIcon={EarningStatusUi[item.status].icon}
-                statusName={EarningStatusUi[item.status].name}
+                statusName={t(EarningStatusUi[item.status].name)}
                 valueColorSchema={EarningStatusUi[item.status].schema}
               />
             )}
 
           <MetaInfo.Default
-            label={t('Staking type')}
+            label={t('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.stakingType')}
             valueColorSchema={earningTagType.color as InfoItemBase['valueColorSchema']}
           >
             {earningTagType.label}
           </MetaInfo.Default>
 
-          {!isSpecial
-            ? (
-              <>
-                <MetaInfo.Number
-                  decimals={inputAsset?.decimals || 0}
-                  label={t('Total stake')}
-                  suffix={inputAsset?.symbol}
-                  value={new BigN(item.totalStake)}
-                  valueColorSchema='even-odd'
-                />
-                <MetaInfo.Number
-                  decimals={inputAsset?.decimals || 0}
-                  label={t('Active stake')}
-                  suffix={inputAsset?.symbol}
-                  value={item.activeStake}
-                  valueColorSchema='even-odd'
-                />
-                <MetaInfo.Number
-                  decimals={inputAsset?.decimals || 0}
-                  label={t('Unstaked')}
-                  suffix={inputAsset?.symbol}
-                  value={item.unstakeBalance}
-                  valueColorSchema='even-odd'
-                />
-              </>
-            )
-            : (
-              <>
-                <MetaInfo.Number
-                  decimals={inputAsset?.decimals || 0}
-                  label={t('Total stake')}
-                  suffix={inputAsset?.symbol}
-                  value={new BigN(item.totalStake)}
-                  valueColorSchema='even-odd'
-                />
-                <MetaInfo.Number
-                  decimals={deriveAsset?.decimals || 0}
-                  label={t('Derivative token balance')}
-                  suffix={deriveAsset?.symbol}
-                  value={item.activeStake}
-                  valueColorSchema='even-odd'
-                />
-              </>
-            )}
-          {isAllAccount && haveNomination && (
+          {metaInfoItems.map((item) => (
+            <MetaInfo.Number
+              key={item.label}
+              {...item}
+              valueColorSchema='even-odd'
+            />
+          ))}
+          {isAllAccount && (haveNomination || haveValidator) && (
             <>
               <div className='__separator'></div>
 
@@ -229,17 +243,21 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
                   block={true}
                   className={'__nomination-button'}
                   disabled={disableButton}
-                  onClick={createOpenNomination(item)}
-                  size={'xs'}
-                  type={'ghost'}
+                  onClick={
+                    canChangeValidator
+                      ? createOpenValidator(item)
+                      : createOpenNomination(item)
+                  }
+                  size='xs'
+                  type='ghost'
                 >
-                  <div className={'__nomination-button-label'}>
-                    {t('Nomination info')}
+                  <div className='__nomination-button-label'>
+                    {canChangeValidator ? t('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.yourValidators') : t('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.nominationInfo')}
                   </div>
 
                   <Icon
                     phosphorIcon={ArrowSquareOut}
-                    size={'sm'}
+                    size='sm'
                   />
                 </Button>
               </div>
@@ -248,7 +266,7 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
         </MetaInfo>
       );
     });
-  }, [createOpenNomination, deriveAsset?.decimals, deriveAsset?.symbol, earningTagType.color, earningTagType.label, haveNomination, inputAsset?.decimals, inputAsset?.symbol, isAllAccount, isSpecial, list, renderAccount, t]);
+  }, [list, isSubnetStaking, t, inputAsset, isSpecial, deriveAsset?.decimals, deriveAsset?.symbol, isAllAccount, poolInfo.chain, networkPrefix, renderAccount, earningTagType.color, earningTagType.label, haveNomination, haveValidator, canChangeValidator, createOpenValidator, createOpenNomination]);
 
   return (
     <>
@@ -258,10 +276,10 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
           '-horizontal-mode': isAllAccount,
           '-has-one-item': list.length === 1
         })}
-        title={t('Account info')}
+        title={t('ui.EARNING.screen.EarningPositionDetail.AccountInfoPart.accountInfo')}
       >
 
-        {isAllAccount
+        {isAllAccount && list.length > 1
           ? (
             <div className={'__slider-container'}>
               <Slider
@@ -283,6 +301,17 @@ function Component ({ className, compound, inputAsset, list, poolInfo }: Props) 
         item={selectedItem}
         onCancel={onCloseNominationModal}
       />
+      {selectedItem && (
+        <EarningValidatorSelectedModal
+          chain={poolInfo.chain}
+          compound={compound}
+          disabled={false}
+          displayType={'nomination'}
+          from={selectedAddress}
+          modalId={EARNING_SELECTED_VALIDATOR_MODAL}
+          nominations={selectedItem?.nominations}
+          slug={poolInfo.slug}
+        />)}
     </>
   );
 }
@@ -305,7 +334,7 @@ export const AccountInfoPart = styled(Component)<Props>(({ theme: { token } }: P
 
   '&.-horizontal-mode.-has-one-item': {
     '.__account-info-item.-box-mode': {
-      minWidth: 300
+      flex: 1
     }
   },
 
@@ -335,8 +364,9 @@ export const AccountInfoPart = styled(Component)<Props>(({ theme: { token } }: P
   '.__carousel-container': {
     '.slick-prev, .slick-next': {
       width: 40,
+      height: 0,
       position: 'absolute',
-      top: 0,
+      top: 'calc(50% - 20px)',
       bottom: 0,
       cursor: 'pointer',
       zIndex: 20
@@ -360,7 +390,6 @@ export const AccountInfoPart = styled(Component)<Props>(({ theme: { token } }: P
 
     '.__left-arrow, .__right-arrow': {
       width: '100%',
-      height: '100%',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center'

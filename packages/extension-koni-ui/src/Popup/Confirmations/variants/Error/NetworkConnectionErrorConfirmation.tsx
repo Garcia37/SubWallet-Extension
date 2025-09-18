@@ -73,22 +73,23 @@ function Component ({ className, request, type }: Props) {
       <div className={CN('confirmation-content', className)}>
         <ConfirmationGeneralInfo request={request} />
         <div className='title'>
-          {t('Transaction request')}
+          {t('ui.NETWORK.Confirmations.Error.NetworkConnection.transactionRequest')}
         </div>
         {/* <div className='description'> */}
-        {/*  {t('You are approving a request with the following account')} */}
+        {/*  {t('ui.NETWORK.Confirmations.Error.NetworkConnection.approvingRequestWithAccount')} */}
         {/* </div> */}
         <MetaInfo>
           {account && <MetaInfo.Account
             address={account.address}
-            label={t('Account')}
+            className={'account-info-item'}
+            label={t('ui.NETWORK.Confirmations.Error.NetworkConnection.account')}
             name={account.name}
           />}
           { networkKey
             ? (
               <MetaInfo.Chain
                 chain={networkKey}
-                label={t<string>('Network')}
+                label={t<string>('ui.NETWORK.Confirmations.Error.NetworkConnection.network')}
               />)
             : <></>}
         </MetaInfo>
@@ -114,7 +115,7 @@ function Component ({ className, request, type }: Props) {
           onClick={onCancel}
           schema={'primary'}
         >
-          {t('I understand')}
+          {t('ui.NETWORK.Confirmations.Error.NetworkConnection.iUnderstand')}
         </Button>
       </div>
     </>
@@ -136,6 +137,12 @@ const NetworkConnectionErrorConfirmation = styled(Component)<Props>(({ theme: { 
 
   '.alert-box': {
     width: '100%'
+  },
+
+  '.account-info-item': {
+    '.__account-item-address': {
+      textAlign: 'right'
+    }
   }
 }));
 

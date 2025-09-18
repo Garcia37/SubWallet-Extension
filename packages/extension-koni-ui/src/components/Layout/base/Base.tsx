@@ -20,20 +20,17 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
 import { useLocalStorage } from 'usehooks-ts';
 
-import Footer from '../parts/Footer';
-
 export interface LayoutBaseProps extends Omit<
 SwScreenLayoutProps,
-'tabBarItems' | 'footer' | 'headerContent' | 'selectedTabBarItem'
+'tabBarItems' | 'headerContent' | 'selectedTabBarItem'
 >, ThemeProps {
   children: React.ReactNode | React.ReactNode[];
-  showFooter?: boolean;
   isDisableHeader?: boolean;
 }
 type TabBarItem = Omit<SwTabBarItem, 'onClick'> & { url: string };
 const specialLanguages: Array<LanguageType> = ['ja', 'ru'];
 
-const Component = ({ children, className, headerIcons, isDisableHeader, onBack, showFooter, ...props }: LayoutBaseProps) => {
+const Component = ({ children, className, headerIcons, isDisableHeader, onBack, ...props }: LayoutBaseProps) => {
   const navigate = useNavigate();
   const { goHome } = useDefaultNavigate();
   const { pathname } = useLocation();
@@ -73,7 +70,7 @@ const Component = ({ children, className, headerIcons, isDisableHeader, onBack, 
         phosphorIcon: Wallet,
         weight: 'fill'
       },
-      label: t('Tokens'),
+      label: t('ui.components.Layout.Base.tokens'),
       key: 'tokens',
       url: '/home/tokens'
     },
@@ -83,7 +80,7 @@ const Component = ({ children, className, headerIcons, isDisableHeader, onBack, 
         phosphorIcon: Aperture,
         weight: 'fill'
       },
-      label: t('NFTs'),
+      label: t('ui.components.Layout.Base.nfts'),
       key: 'nfts',
       url: '/home/nfts/collections'
     },
@@ -93,7 +90,7 @@ const Component = ({ children, className, headerIcons, isDisableHeader, onBack, 
         phosphorIcon: Vault,
         weight: 'fill'
       },
-      label: t('Earning'),
+      label: t('ui.components.Layout.Base.earning'),
       key: 'earning',
       url: '/home/earning'
     },
@@ -111,7 +108,7 @@ const Component = ({ children, className, headerIcons, isDisableHeader, onBack, 
           </>
         )
       },
-      label: t('Missions'),
+      label: t('ui.components.Layout.Base.missions'),
       key: 'mission-pools',
       url: '/home/mission-pools'
     },
@@ -121,7 +118,7 @@ const Component = ({ children, className, headerIcons, isDisableHeader, onBack, 
         phosphorIcon: Clock,
         weight: 'fill'
       },
-      label: t('History'),
+      label: t('ui.components.Layout.Base.history'),
       key: 'history',
       url: '/home/history'
     }
@@ -146,7 +143,6 @@ const Component = ({ children, className, headerIcons, isDisableHeader, onBack, 
     <SwScreenLayout
       {...props}
       className={CN(className, { 'special-language': specialLanguages.includes(language), 'disable-header': isDisableHeader })}
-      footer={showFooter && <Footer />}
       headerContent={props.showHeader && <SelectAccount />}
       headerIcons={headerIcons}
       onBack={onBack || defaultOnBack}
@@ -171,6 +167,11 @@ const Base = styled(Component)<LayoutBaseProps>(({ theme: { token } }: LayoutBas
       textAlign: 'center'
     }
   },
+
+  '.ant-sw-tab-bar-item-icon': {
+    position: 'relative'
+  },
+
   '.__active-count': {
     borderRadius: '50%',
     color: token.colorWhite,
@@ -181,8 +182,8 @@ const Base = styled(Component)<LayoutBaseProps>(({ theme: { token } }: LayoutBas
     paddingBottom: 0,
     backgroundColor: token.colorError,
     position: 'absolute',
-    right: 108,
-    top: 10,
+    right: 0,
+    top: 0,
     minWidth: '12px'
   },
 

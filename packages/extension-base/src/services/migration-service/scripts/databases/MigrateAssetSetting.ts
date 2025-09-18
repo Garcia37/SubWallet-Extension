@@ -8,8 +8,7 @@ export default class MigrateAssetSetting extends BaseMigrationJob {
   public override async run (): Promise<void> {
     try {
       const changeSlugsMap: Record<string, string> = {
-        'bobMainnet-LOCAL-wBTC-0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3': 'bobMainnet-LOCAL-WBTC-0x03C7054BCB39f7b2e5B2c7AcB37583e32D70Cfa3',
-        'hydradx_main-LOCAL-LRNA': 'hydradx_main-LOCAL-H2O'
+        'polygon-ERC20-USDT-0xc2132D05D31c914a87C6611C10748AEb04B58e8F': 'polygon-ERC20-USD₮0-0xc2132D05D31c914a87C6611C10748AEb04B58e8F'
       };
 
       const assetSetting = await this.state.chainService.getAssetSettings();

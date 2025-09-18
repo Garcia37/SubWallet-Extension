@@ -3,7 +3,7 @@
 
 import { _ChainAsset, _ChainInfo } from '@subwallet/chain-list/types';
 import { _BalanceMetadata, APIItemState, ExtrinsicType } from '@subwallet/extension-base/background/KoniTypes';
-import { _EvmApi, _SubstrateApi } from '@subwallet/extension-base/services/chain-service/types';
+import { _BitcoinApi, _CardanoApi, _EvmApi, _SubstrateApi, _TonApi } from '@subwallet/extension-base/services/chain-service/types';
 
 import { BN } from '@polkadot/util';
 
@@ -37,7 +37,6 @@ export interface BalanceItem {
   // substrate fields
   metadata?: _BalanceMetadata;
 }
-
 /** Balance info of all tokens on an address */
 export type BalanceInfo = Record<string, BalanceItem>; // Key is tokenSlug
 /** Balance info of all addresses */
@@ -63,4 +62,16 @@ export interface SubscribeSubstratePalletBalance extends SubscribeBasePalletBala
 
 export interface SubscribeEvmPalletBalance extends SubscribeBasePalletBalance {
   evmApi: _EvmApi;
+}
+
+export interface SubscribeTonPalletBalance extends SubscribeBasePalletBalance {
+  tonApi: _TonApi;
+}
+
+export interface SusbcribeCardanoPalletBalance extends SubscribeBasePalletBalance {
+  cardanoApi: _CardanoApi;
+}
+
+export interface SusbcribeBitcoinPalletBalance extends SubscribeBasePalletBalance {
+  bitcoinApi: _BitcoinApi;
 }

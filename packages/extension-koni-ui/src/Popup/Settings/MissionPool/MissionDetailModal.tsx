@@ -4,7 +4,9 @@
 import DefaultLogosMap from '@subwallet/extension-koni-ui/assets/logo';
 import { InfoItemBase, MetaInfo } from '@subwallet/extension-koni-ui/components';
 import { NetworkGroup } from '@subwallet/extension-koni-ui/components/MetaInfo/parts';
+import { MktCampaignModalContext } from '@subwallet/extension-koni-ui/contexts/MktCampaignModalContext';
 import { useTranslation } from '@subwallet/extension-koni-ui/hooks';
+import useGetConfirmationByScreen from '@subwallet/extension-koni-ui/hooks/campaign/useGetConfirmationByScreen';
 import { missionCategoryMap, MissionCategoryType, tagMap } from '@subwallet/extension-koni-ui/Popup/Settings/MissionPool/predefined';
 import { Theme } from '@subwallet/extension-koni-ui/themes';
 import { MissionInfo, ThemeProps } from '@subwallet/extension-koni-ui/types';
@@ -26,32 +28,51 @@ const modalId = PoolDetailModalId;
 function Component ({ className = '', data }: Props): React.ReactElement<Props> {
   const { t } = useTranslation();
   const { inactiveModal } = useContext(ModalContext);
+  const mktCampaignModalContext = useContext(MktCampaignModalContext);
   const logoMap = useContext<Theme>(ThemeContext as Context<Theme>).logoMap;
+  const { getCurrentConfirmation, renderConfirmationButtons } = useGetConfirmationByScreen('missionPools');
   const timeline = useMemo<string>(() => {
     if (!data?.start_time && !data?.end_time) {
-      return t('TBD');
+      return t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.tbd');
     }
 
-    const start = data.start_time ? customFormatDate(new Date(data.start_time), '#DD# #MMM# #YYYY#') : t('TBD');
-    const end = data.end_time ? customFormatDate(new Date(data.end_time), '#DD# #MMM# #YYYY#') : t('TBD');
+    const start = data.start_time ? customFormatDate(new Date(data.start_time), '#DD# #MMM# #YYYY#') : t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.tbd');
+    const end = data.end_time ? customFormatDate(new Date(data.end_time), '#DD# #MMM# #YYYY#') : t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.tbd');
 
     return `${start} - ${end}`;
   }, [data?.end_time, data?.start_time, t]);
 
-  const onClickGlobalIcon: ButtonProps['onClick'] = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
+  const currentConfirmation = useMemo(() => {
+    if (data) {
+      return getCurrentConfirmation([data.id.toString()]);
+    } else {
+      return undefined;
+    }
+  }, [getCurrentConfirmation, data]);
+
+  const onClickGlobalIcon: ButtonProps['onClick'] = useCallback(() => {
     data?.campaign_url && openInNewTab(data.campaign_url)();
   }, [data?.campaign_url]);
 
-  const onClickTwitterIcon: ButtonProps['onClick'] = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
+  const onClickTwitterIcon: ButtonProps['onClick'] = useCallback(() => {
     data?.twitter_url && openInNewTab(data.twitter_url)();
   }, [data?.twitter_url]);
 
-  const onClickJoinNow: ButtonProps['onClick'] = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    data?.url && openInNewTab(data.url)();
-  }, [data?.url]);
+  const onClickJoinNow: ButtonProps['onClick'] = useCallback(() => {
+    if (currentConfirmation) {
+      mktCampaignModalContext.openModal({
+        type: 'confirmation',
+        title: currentConfirmation.name,
+        message: currentConfirmation.content,
+        externalButtons: renderConfirmationButtons(mktCampaignModalContext.hideModal, () => {
+          mktCampaignModalContext.hideModal();
+          data?.url && openInNewTab(data.url)();
+        })
+      });
+    } else {
+      data?.url && openInNewTab(data.url)();
+    }
+  }, [currentConfirmation, data?.url, mktCampaignModalContext, renderConfirmationButtons]);
 
   const onCancel = useCallback(() => {
     inactiveModal(modalId);
@@ -123,7 +144,7 @@ function Component ({ className = '', data }: Props): React.ReactElement<Props> 
               valueColorScheme={'light'}
             >
               <MetaInfo.Default
-                label={t('Name')}
+                label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.name')}
               >
                 {data.name}
               </MetaInfo.Default>
@@ -131,7 +152,7 @@ function Component ({ className = '', data }: Props): React.ReactElement<Props> 
               {
                 !!data.chains && data.chains.length > 1 && (
                   <MetaInfo.Default
-                    label={t('Network')}
+                    label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.network')}
                   >
                     <NetworkGroup chains={data.chains} />
                   </MetaInfo.Default>
@@ -142,13 +163,13 @@ function Component ({ className = '', data }: Props): React.ReactElement<Props> 
                 !!data.chains && data.chains.length === 1 && (
                   <MetaInfo.Chain
                     chain={data.chains[0]}
-                    label={t('Network')}
+                    label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.network')}
                   />
                 )
               }
               <MetaInfo.Default
                 className={'__status-pool'}
-                label={t('Status')}
+                label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.status')}
                 valueColorSchema={valueColorSchema}
               >
                 {status}
@@ -156,7 +177,7 @@ function Component ({ className = '', data }: Props): React.ReactElement<Props> 
               {data?.categories && data.categories.length > 0 && (
                 <MetaInfo.Default
                   className='__category-pool'
-                  label={t('Categories')}
+                  label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.categories')}
                 >
                   {data.categories.map((category, index) => (
                     <Tag
@@ -176,32 +197,32 @@ function Component ({ className = '', data }: Props): React.ReactElement<Props> 
 
               <MetaInfo.Default
                 className={'-vertical'}
-                label={t('Description')}
+                label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.description')}
                 valueColorSchema={'gray'}
               >
                 <Markdown>{data.description}</Markdown>
               </MetaInfo.Default>
               {!!data.total_supply && <MetaInfo.Default
                 className={'__total-token-supply'}
-                label={t('Total token supply')}
+                label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.totalTokenSupply')}
                 valueColorSchema={'gray'}
               >
                 {data.total_supply}
               </MetaInfo.Default>}
               <MetaInfo.Default
-                label={t('Total rewards')}
+                label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.totalRewards')}
                 valueColorSchema={'gray'}
               >
                 {data.reward}
               </MetaInfo.Default>
               <MetaInfo.Default
-                label={t('Timeline')}
+                label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.timeline')}
                 valueColorSchema={'success'}
               >
                 {timeline}
               </MetaInfo.Default>
               <MetaInfo.Default
-                label={t('Total winners')}
+                label={t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.totalWinners')}
                 valueColorSchema={'gray'}
               >
                 {data.total_winner}
@@ -253,7 +274,7 @@ function Component ({ className = '', data }: Props): React.ReactElement<Props> 
                   shape={'circle'}
                   size={'xs'}
                 >
-                  {t('Join now')}
+                  {t('ui.SETTINGS.screen.Setting.MissionPool.DetailModal.joinNow')}
                 </Button>
               </div>
             </div>

@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { ConfirmationDefinitions, ConfirmationResult, EvmSendTransactionRequest, ExtrinsicType } from '@subwallet/extension-base/background/KoniTypes';
+import { AccountSignMode } from '@subwallet/extension-base/types';
 import { AlertBox } from '@subwallet/extension-koni-ui/components';
 import { CONFIRMATION_QR_MODAL } from '@subwallet/extension-koni-ui/constants/modal';
 import { InjectContext } from '@subwallet/extension-koni-ui/contexts/InjectContext';
-import { useGetChainInfoByChainId, useLedger, useNotification } from '@subwallet/extension-koni-ui/hooks';
+import { useGetAccountByAddress, useGetChainInfoByChainId, useLedger, useNotification } from '@subwallet/extension-koni-ui/hooks';
 import useUnlockChecker from '@subwallet/extension-koni-ui/hooks/common/useUnlockChecker';
 import { completeConfirmation } from '@subwallet/extension-koni-ui/messaging';
 import { PhosphorIcon, SigData, ThemeProps } from '@subwallet/extension-koni-ui/types';
-import { AccountSignMode } from '@subwallet/extension-koni-ui/types/account';
 import { EvmSignatureSupportType } from '@subwallet/extension-koni-ui/types/confirmation';
 import { getSignMode, isEvmMessage, removeTransactionPersist } from '@subwallet/extension-koni-ui/utils';
 import { Button, Icon, ModalContext } from '@subwallet/react-ui';
@@ -56,9 +56,8 @@ const handleSignature = async (type: EvmSignatureSupportType, id: string, signat
 
 const Component: React.FC<Props> = (props: Props) => {
   const { className, extrinsicType, id, payload, txExpirationTime, type } = props;
-  const { payload: { account, canSign, errors, hashPayload } } = payload;
+  const { payload: { address, canSign, errors, hashPayload } } = payload;
   const chainId = (payload.payload as EvmSendTransactionRequest)?.chainId || 1;
-
   const { t } = useTranslation();
   const notify = useNotification();
 
@@ -67,6 +66,7 @@ const Component: React.FC<Props> = (props: Props) => {
 
   const chain = useGetChainInfoByChainId(chainId);
   const checkUnlock = useUnlockChecker();
+  const account = useGetAccountByAddress(address);
   const signMode = useMemo(() => getSignMode(account), [account]);
   const isLedger = useMemo(() => signMode === AccountSignMode.LEGACY_LEDGER || signMode === AccountSignMode.GENERIC_LEDGER, [signMode]);
   const [showQuoteExpired, setShowQuoteExpired] = useState<boolean>(false);
@@ -153,8 +153,8 @@ const Component: React.FC<Props> = (props: Props) => {
 
     setTimeout(() => {
       const signPromise = isMessage
-        ? ledgerSignMessage(u8aToU8a(hashPayload), account.accountIndex, account.addressOffset, account.address)
-        : ledgerSignTransaction(hexToU8a(hashPayload), new Uint8Array(0), account.accountIndex, account.addressOffset, account.address);
+        ? ledgerSignMessage(u8aToU8a(hashPayload), account?.accountIndex, account?.addressOffset, account?.address)
+        : ledgerSignTransaction(hexToU8a(hashPayload), new Uint8Array(0), account?.accountIndex, account?.addressOffset, account?.address);
 
       signPromise
         .then(({ signature }) => {
@@ -165,17 +165,17 @@ const Component: React.FC<Props> = (props: Props) => {
           setLoading(false);
         });
     });
-  }, [account.accountIndex, account.address, account.addressOffset, hashPayload, isLedgerConnected, isMessage, ledger, ledgerSignMessage, ledgerSignTransaction, onApproveSignature, refreshLedger]);
+  }, [account?.accountIndex, account?.address, account?.addressOffset, hashPayload, isLedgerConnected, isMessage, ledger, ledgerSignMessage, ledgerSignTransaction, onApproveSignature, refreshLedger]);
 
   const onConfirmInject = useCallback(() => {
     if (evmWallet) {
       let promise: Promise<`0x${string}`>;
 
       if (isMessage) {
-        promise = evmWallet.request<`0x${string}`>({ method: payload.payload.type, params: [account.address, payload.payload.payload] });
+        promise = evmWallet.request<`0x${string}`>({ method: payload.payload.type, params: [account?.address || address, payload.payload.payload] });
       } else {
         promise = new Promise<`0x${string}`>((resolve, reject) => {
-          const { account, canSign, estimateGas, hashPayload, isToContract, parseData, ...transactionConfig } = payload.payload;
+          const { address, canSign, estimateGas, hashPayload, isToContract, parseData, ...transactionConfig } = payload.payload;
 
           evmWallet.request({
             method: 'wallet_switchEthereumChain',
@@ -204,7 +204,7 @@ const Component: React.FC<Props> = (props: Props) => {
           setLoading(false);
         });
     }
-  }, [account.address, chainId, evmWallet, isMessage, onApproveSignature, payload.payload]);
+  }, [account?.address, address, chainId, evmWallet, isMessage, onApproveSignature, payload.payload]);
 
   const onConfirm = useCallback(() => {
     removeTransactionPersist(extrinsicType);
@@ -214,7 +214,7 @@ const Component: React.FC<Props> = (props: Props) => {
 
       if (currentTime >= txExpirationTime) {
         notify({
-          message: t('Transaction expired'),
+          message: t('ui.DAPP.Confirmations.Sign.Evm.transactionExpired'),
           type: 'error'
         });
         onCancel();
@@ -290,7 +290,7 @@ const Component: React.FC<Props> = (props: Props) => {
             onClick={onCancel}
             schema={'primary'}
           >
-            {t('I understand')}
+            {t('ui.DAPP.Confirmations.Sign.Evm.iUnderstand')}
           </Button>
           : <Button
             disabled={loading}
@@ -303,7 +303,7 @@ const Component: React.FC<Props> = (props: Props) => {
             onClick={onCancel}
             schema={'secondary'}
           >
-            {t('Cancel')}
+            {t('ui.DAPP.Confirmations.Sign.Evm.cancel')}
           </Button>
       }
 
@@ -320,17 +320,17 @@ const Component: React.FC<Props> = (props: Props) => {
       >
         {
           !isLedger
-            ? t('Approve')
+            ? t('ui.DAPP.Confirmations.Sign.Evm.approve')
             : !isLedgerConnected
-              ? t('Refresh')
-              : t('Approve')
+              ? t('ui.DAPP.Confirmations.Sign.Evm.refresh')
+              : t('ui.DAPP.Confirmations.Sign.Evm.approve')
         }
       </Button>}
       {
         !isErrorTransaction && signMode === AccountSignMode.QR && (
           <DisplayPayloadModal>
             <EvmQr
-              address={account.address}
+              address={account?.address || address}
               hashPayload={hashPayload}
               isMessage={isEvmMessage(payload)}
             />

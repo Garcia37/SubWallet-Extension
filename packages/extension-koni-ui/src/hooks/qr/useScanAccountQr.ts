@@ -23,7 +23,7 @@ const useScanAccountQr = (
     if (result) {
       if (isProductionMode && result.isEthereum) {
         setValidateState({
-          message: t('Invalid QR code. EVM networks are not supported'),
+          message: t('ui.SETTING.hook.qr.useScanAccountQr.evmQrSignerNotSupported'),
           status: 'error'
         });
 
@@ -33,7 +33,7 @@ const useScanAccountQr = (
       }
     } else {
       setValidateState({
-        message: t('Invalid QR code'),
+        message: t('ui.SETTING.hook.qr.useScanAccountQr.invalidQrCode'),
         status: 'error'
       });
 

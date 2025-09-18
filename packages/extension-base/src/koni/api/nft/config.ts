@@ -31,13 +31,13 @@ export const BIT_COUNTRY_THUMBNAIL_RESOLVER = 'https://res.cloudinary.com/ddftct
 export const CF_IPFS_GATEWAY = 'https://cf-ipfs.com/ipfs/';
 
 // XOrigin
-export const PINATA_IPFS_GATEWAY = 'https://gateway.pinata.cloud/ipfs/';
+export const ODYSSEY_ENDPOINT = 'https://indexer-v2.dev.aurascan.io/api/v2/graphql';
 
 // deprecated
 // export const UNIQUE_SCAN_ENDPOINT = 'https://explorer-api.unique.network/v1/graphql';
 // export const QUARTZ_SCAN_ENDPOINT = 'https://hasura-quartz.unique.network/v1/graphql';
 
-export const VARA_SCAN_ENDPOINT = 'https://nft-explorer.vara-network.io/graphql';
+export const VARA_SCAN_ENDPOINT = 'https://nft-explorer.vara.network/graphql';
 
 export const AVAIL_LIGHT_CLIENT_NFT = 'https://indexer.availspace.app/graphql'; // 'https://indexer-nft.availspace.app/graphql';
 
@@ -64,6 +64,14 @@ export const IPFS_IO = 'https://ipfs.io/ipfs/';
 // XOrigin
 export const DWEB_LINK = 'https://dweb.link/ipfs/';
 
+// XOrigin
+export const TERNOA_MAINNET_CLIENT_NFT = 'https://indexer-mainnet.ternoa.dev';
+export const TERNOA_ALPHANET_CLIENT_NFT = 'https://indexer-alphanet.ternoa.dev';
+export const TERNOA_MAINNET_GATEWAY = 'https://ipfs-mainnet.trnnfr.com/ipfs/';
+export const TERNOA_ALPHANET_GATEWAY = 'https://ipfs-dev.trnnfr.com/ipfs/';
+
+// XOrigin
+
 export const IPFS_GATEWAY_4EVERLAND = 'https://4everland.io/ipfs/';
 
 export const IPFS_FLEEK = 'https://ipfs.fleek.co/ipfs/';
@@ -71,7 +79,7 @@ export const IPFS_FLEEK = 'https://ipfs.fleek.co/ipfs/';
 export const W3S_IPFS = 'https://w3s.link/ipfs/'; // 400
 export const IPFS2_RMRK = 'https://ipfs2.rmrk.link/ipfs/'; // ????
 export const IPFS_ETH_ARAGON = 'https://ipfs.eth.aragon.network/ipfs/'; // 400
-export const SUBWALLET_IPFS = 'https://ipfs.subwallet.app/ipfs/'; // ???
+export const SUBWALLET_IPFS = 'https://ipfs-files.subwallet.app/ipfs/'; // ???
 
 export enum SUPPORTED_NFT_NETWORKS {
   karura = 'karura',
@@ -107,7 +115,7 @@ export const SUPPORTED_TRANSFER_EVM_CHAIN = [
   SUPPORTED_TRANSFER_EVM_CHAIN_NAME.shibuya as string
 ];
 
-export const UNSUPPORTED_TRANSFER_EVM_CHAIN_NAME = ['unique_evm'];
+export const UNSUPPORTED_TRANSFER_EVM_CHAIN_NAME = ['unique_evm', 'rari', 'storyOdyssey_testnet'];
 
 export const TRANSFER_CHAIN_ID = {
   [SUPPORTED_TRANSFER_EVM_CHAIN_NAME.moonbase as string]: 1287,
